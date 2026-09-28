@@ -24,8 +24,8 @@ export const Navbar: React.FC<NavbarProps> = ({
 }) => {
   return (
     <>
-      {/* Top Header */}
-      <header className="bg-slate-900/95 backdrop-blur-md border-b border-slate-800 sticky top-0 z-40 px-3 py-2.5 shadow-md">
+      {/* Top Header with iOS Safe Area Top padding */}
+      <header className="bg-slate-900/95 backdrop-blur-md border-b border-slate-800/80 sticky top-0 z-40 px-3 pt-safe pb-2.5 shadow-md">
         <div className="max-w-5xl mx-auto flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-rose-500 via-pink-500 to-amber-500 flex items-center justify-center shadow-lg shadow-rose-500/20 shrink-0">
@@ -43,7 +43,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           <div className="flex items-center gap-1.5 shrink-0">
             {/* Quick Person Toggle Filter */}
-            <div className="flex items-center bg-slate-800/90 rounded-xl p-1 border border-slate-700/60">
+            <div className="flex items-center bg-slate-800/90 rounded-xl p-0.5 border border-slate-700/60">
               <button
                 onClick={() => setUserFilter('all')}
                 className={`px-2 py-1 rounded-lg text-[10px] font-bold transition ${
@@ -90,8 +90,8 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </header>
 
-      {/* Bottom Mobile Floating Navigation Bar */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur-xl border-t border-slate-800/80 px-2 py-1.5 shadow-2xl">
+      {/* Bottom Floating Navigation Bar with iOS Safe Area Bottom padding */}
+      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur-xl border-t border-slate-800/80 px-2 pt-1.5 pb-safe shadow-2xl">
         <div className="max-w-md mx-auto flex items-center justify-around">
           <button
             onClick={() => setActiveTab('dashboard')}

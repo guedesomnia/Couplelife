@@ -2,9 +2,23 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  @apply bg-slate-950 text-slate-100 font-sans antialiased min-h-screen pb-20 md:pb-6;
+@layer utilities {
+  .pt-safe {
+    padding-top: max(0.75rem, env(safe-area-inset-top));
+  }
+  .pb-safe {
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  }
+}
+
+html, body {
+  background-color: #020617;
+  color: #f8fafc;
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
   -webkit-tap-highlight-color: transparent;
+  overflow-x: hidden;
+  touch-action: manipulation;
 }
 
 /* Custom scrollbar */
