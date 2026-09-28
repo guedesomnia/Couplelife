@@ -147,8 +147,21 @@ const INITIAL_CLIENTS: ClientItem[] = [
     expectedDate: addDays(today, 4),
     status: 'pendente',
     contactInfo: '(11) 98765-4321',
+    responsible: 'ela',
     notes: 'Enviar nota fiscal após confirmação do depósito',
     createdAt: today,
+    consumptionHistory: [
+      {
+        id: 'log-1',
+        date: addDays(today, -10),
+        productName: 'Pacote Mensal Social Media',
+        unitPrice: 1500.00,
+        quantity: 1,
+        totalAmount: 1500.00,
+        soldBy: 'ela',
+        notes: 'Atendimento feito por Ela',
+      },
+    ],
   },
   {
     id: 'c-2',
@@ -158,8 +171,21 @@ const INITIAL_CLIENTS: ClientItem[] = [
     expectedDate: addDays(today, -2),
     status: 'atrasado',
     contactInfo: 'marcos@academia.com',
+    responsible: 'ele',
     notes: 'Cobrar segunda parcela que venceu anteontem',
     createdAt: today,
+    consumptionHistory: [
+      {
+        id: 'log-2',
+        date: addDays(today, -15),
+        productName: 'Desenvolvimento do Web Site',
+        unitPrice: 2800.00,
+        quantity: 1,
+        totalAmount: 2800.00,
+        soldBy: 'ele',
+        notes: 'Atendimento feito por Ele',
+      },
+    ],
   },
   {
     id: 'c-3',
@@ -170,7 +196,19 @@ const INITIAL_CLIENTS: ClientItem[] = [
     status: 'pago',
     receivedDate: addDays(today, -4),
     contactInfo: 'financeiro@rioscontabil.com.br',
+    responsible: 'ele',
     createdAt: today,
+    consumptionHistory: [
+      {
+        id: 'log-3',
+        date: addDays(today, -20),
+        productName: 'Suporte Técnico Presencial',
+        unitPrice: 850.00,
+        quantity: 1,
+        totalAmount: 850.00,
+        soldBy: 'ele',
+      },
+    ],
   },
 ];
 

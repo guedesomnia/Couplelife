@@ -44,6 +44,17 @@ export interface IncomeItem {
 
 export type ClientStatus = 'pendente' | 'pago' | 'atrasado';
 
+export interface ClientConsumptionLog {
+  id: string;
+  date: string; // YYYY-MM-DD
+  productName: string;
+  unitPrice: number;
+  quantity: number;
+  totalAmount: number;
+  soldBy: ResponsiblePerson; // 'ele' | 'ela'
+  notes?: string;
+}
+
 export interface ClientItem {
   id: string;
   clientName: string;
@@ -53,6 +64,8 @@ export interface ClientItem {
   status: ClientStatus;
   receivedDate?: string;
   contactInfo?: string;
+  responsible: ResponsiblePerson; // 'ele' | 'ela' | 'ambos'
+  consumptionHistory?: ClientConsumptionLog[];
   notes?: string;
   createdAt: string;
 }

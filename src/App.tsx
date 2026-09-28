@@ -15,6 +15,8 @@ import { DashboardView } from './components/DashboardView';
 import { RoutinesView } from './components/RoutinesView';
 import { FinancesView } from './components/FinancesView';
 import { GoalsView } from './components/GoalsView';
+import { CalendarView } from './components/CalendarView';
+import { WeeklyReportView } from './components/WeeklyReportView';
 import { SettingsModal } from './components/SettingsModal';
 
 export function App() {
@@ -75,7 +77,6 @@ export function App() {
     const client = getSupabase(settings.supabaseUrl, settings.supabaseKey);
     if (!client) return;
 
-    // Load cloud data once on mount
     const fetchCloudData = async () => {
       try {
         const { data, error } = await client.from('casal_sync').select('data').eq('id', 'main_data').single();
@@ -115,7 +116,7 @@ export function App() {
     syncToCloud();
   }, [routines, bills, incomes, clients, goals]);
 
-  // Handler functions for Routines
+  // Handlers for Routines
   const addRoutine = (newRoutine: Omit<RoutineItem, 'id' | 'createdAt'>) => {
     const item: RoutineItem = {
       ...newRoutine,
@@ -139,7 +140,7 @@ export function App() {
     );
   };
 
-  // Handler functions for Bills
+  // Handlers for Bills
   const addBill = (newBill: Omit<BillItem, 'id' | 'createdAt'>) => {
     const item: BillItem = {
       ...newBill,
@@ -171,7 +172,7 @@ export function App() {
     );
   };
 
-  // Handler functions for Incomes
+  // Handlers for Incomes
   const addIncome = (newIncome: Omit<IncomeItem, 'id' | 'createdAt'>) => {
     const item: IncomeItem = {
       ...newIncome,
@@ -189,7 +190,7 @@ export function App() {
     setIncomes((prev) => prev.filter((i) => i.id !== id));
   };
 
-  // Handler functions for Clients
+  // Handlers for Clients
   const addClient = (newClient: Omit<ClientItem, 'id' | 'createdAt'>) => {
     const item: ClientItem = {
       ...newClient,
@@ -207,7 +208,7 @@ export function App() {
     setClients((prev) => prev.filter((c) => c.id !== id));
   };
 
-  // Handler functions for Goals
+  // Handlers for Goals
   const addGoal = (newGoal: Omit<GoalItem, 'id' | 'createdAt'>) => {
     const item: GoalItem = {
       ...newGoal,
@@ -294,6 +295,26 @@ export function App() {
             addClient={addClient}
             updateClient={updateClient}
             deleteClient={deleteClient}
+          />
+        )}
+
+        {activeTab === 'calendar' && (
+          <CalendarView
+            routines={routines}
+            bills={bills}
+            incomes={incomes}
+            clients={clients}
+            settings={settings}
+            toggleRoutine={toggleRoutine}
+            toggleBill={toggleBill}
+          />
+        )}
+
+        {activeTab === 'weekly' && (
+          <WeeklyReportView
+            incomes={incomes}
+            clients={clients}
+            settings={settings}
           />
         )}
 

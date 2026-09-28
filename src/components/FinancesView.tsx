@@ -7,6 +7,7 @@ import type {
   ResponsiblePerson,
   ClientStatus,
   AppSettings,
+  ClientConsumptionLog,
 } from '../types';
 import {
   DollarSign,
@@ -17,6 +18,8 @@ import {
   Trash2,
   CheckCircle,
   X,
+  History,
+  ShoppingBag,
 } from 'lucide-react';
 
 interface FinancesViewProps {
@@ -46,7 +49,6 @@ export const FinancesView: React.FC<FinancesViewProps> = ({
   deleteBill,
   toggleBill,
   addIncome,
-
   deleteIncome,
   addClient,
   updateClient,
@@ -56,6 +58,14 @@ export const FinancesView: React.FC<FinancesViewProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalType, setModalType] = useState<'bill' | 'income' | 'client'>('bill');
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  // Client History Drawer state
+  const [selectedClientForHistory, setSelectedClientForHistory] = useState<ClientItem | null>(null);
+  const [historyProductName, setHistoryProductName] = useState('');
+  const [historyUnitPrice, setHistoryUnitPrice] = useState('');
+  const [historyQuantity, setHistoryQuantity] = useState('1');
+  const [historySoldBy, setHistorySoldBy] = useState<ResponsiblePerson>('ele');
+  const [historyNotes, setHistoryNotes] = useState('');
 
   const todayStr = new Date().toISOString().split('T')[0];
 
@@ -82,6 +92,7 @@ export const FinancesView: React.FC<FinancesViewProps> = ({
   const [clientAmount, setClientAmount] = useState('');
   const [clientExpectedDate, setClientExpectedDate] = useState(todayStr);
   const [clientStatus, setClientStatus] = useState<ClientStatus>('pendente');
+  const [clientResponsible, setClientResponsible] = useState<ResponsiblePerson>('ele');
   const [clientContact, setClientContact] = useState('');
   const [clientNotes, setClientNotes] = useState('');
 
@@ -128,6 +139,7 @@ export const FinancesView: React.FC<FinancesViewProps> = ({
     setClientAmount('');
     setClientExpectedDate(todayStr);
     setClientStatus('pendente');
+    setClientResponsible('ele');
     setClientContact('');
     setClientNotes('');
     setIsModalOpen(true);
@@ -188,6 +200,7 @@ export const FinancesView: React.FC<FinancesViewProps> = ({
           amount: numAmount,
           expectedDate: clientExpectedDate,
           status: clientStatus,
+          responsible: clientResponsible,
           contactInfo: clientContact || undefined,
           notes: clientNotes || undefined,
         });
@@ -198,13 +211,56 @@ export const FinancesView: React.FC<FinancesViewProps> = ({
           amount: numAmount,
           expectedDate: clientExpectedDate,
           status: clientStatus,
+          responsible: clientResponsible,
           contactInfo: clientContact || undefined,
           notes: clientNotes || undefined,
+          consumptionHistory: [],
         });
       }
     }
 
     setIsModalOpen(false);
+  };
+
+  // Add item to client consumption history
+  const handleAddConsumptionLog = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedClientForHistory || !historyProductName.trim() || !historyUnitPrice) return;
+
+    const uPrice = parseFloat(historyUnitPrice);
+    const qty = parseInt(historyQuantity, 10) || 1;
+    if (isNaN(uPrice)) return;
+
+    const total = uPrice * qty;
+    const newLog: ClientConsumptionLog = {
+      id: `log-${Date.now()}`,
+      date: todayStr,
+      productName: historyProductName.trim(),
+      unitPrice: uPrice,
+      quantity: qty,
+      totalAmount: total,
+      soldBy: historySoldBy,
+      notes: historyNotes || undefined,
+    };
+
+    const updatedHistory = [...(selectedClientForHistory.consumptionHistory || []), newLog];
+    const newTotalAmount = updatedHistory.reduce((acc, curr) => acc + curr.totalAmount, 0);
+
+    updateClient(selectedClientForHistory.id, {
+      consumptionHistory: updatedHistory,
+      amount: newTotalAmount, // Automatically update total amount from consumption logs!
+    });
+
+    setSelectedClientForHistory({
+      ...selectedClientForHistory,
+      consumptionHistory: updatedHistory,
+      amount: newTotalAmount,
+    });
+
+    setHistoryProductName('');
+    setHistoryUnitPrice('');
+    setHistoryQuantity('1');
+    setHistoryNotes('');
   };
 
   const totalIncomes = incomes.reduce((acc, curr) => acc + curr.amount, 0);
@@ -215,7 +271,7 @@ export const FinancesView: React.FC<FinancesViewProps> = ({
     .reduce((acc, curr) => acc + curr.amount, 0);
 
   return (
-    <div className="space-y-6 pb-6">
+    <div className="space-y-6 pb-6 w-full max-w-full overflow-x-hidden">
       {/* Header */}
       <div className="bg-slate-800/80 p-5 rounded-2xl border border-slate-700/60 shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -223,7 +279,7 @@ export const FinancesView: React.FC<FinancesViewProps> = ({
             <DollarSign className="w-6 h-6 text-emerald-400" /> Gestão Financeira do Casal
           </h2>
           <p className="text-xs sm:text-sm text-slate-300 mt-1">
-            Controle de contas a pagar, salários/entradas e clientes a receber.
+            Controle de contas a pagar, salários e consumo de produtos de clientes.
           </p>
         </div>
 
@@ -266,7 +322,7 @@ export const FinancesView: React.FC<FinancesViewProps> = ({
           }`}
         >
           <CreditCard className="w-4 h-4" />
-          <span>Contas a Pagar ({bills.filter((b) => !b.paid).length})</span>
+          <span>Contas ({bills.filter((b) => !b.paid).length})</span>
         </button>
 
         <button
@@ -278,7 +334,7 @@ export const FinancesView: React.FC<FinancesViewProps> = ({
           }`}
         >
           <ArrowUpRight className="w-4 h-4" />
-          <span>Entradas / Receitas</span>
+          <span>Entradas</span>
         </button>
 
         <button
@@ -290,14 +346,13 @@ export const FinancesView: React.FC<FinancesViewProps> = ({
           }`}
         >
           <Users className="w-4 h-4" />
-          <span>Clientes & Recebimentos</span>
+          <span>Clientes & Consumo</span>
         </button>
       </div>
 
       {/* SUB-TAB 1: CONTAS A PAGAR */}
       {activeSubTab === 'bills' && (
         <div className="space-y-4">
-          {/* Totalizer Header */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <div className="bg-slate-800/70 p-3.5 rounded-xl border border-slate-700">
               <span className="text-xs text-slate-400">Total Pendente</span>
@@ -313,7 +368,6 @@ export const FinancesView: React.FC<FinancesViewProps> = ({
             </div>
           </div>
 
-          {/* Bills List */}
           <div className="space-y-3">
             {bills.length === 0 ? (
               <p className="text-center py-8 text-slate-400">Nenhuma conta cadastrada.</p>
@@ -339,7 +393,6 @@ export const FinancesView: React.FC<FinancesViewProps> = ({
                             ? 'bg-emerald-500 border-emerald-400 text-white'
                             : 'border-slate-500 text-transparent hover:border-slate-300'
                         }`}
-                        title={bill.paid ? 'Marcar como Pendente' : 'Marcar como Paga'}
                       >
                         <CheckCircle className="w-4 h-4" />
                       </button>
@@ -380,12 +433,7 @@ export const FinancesView: React.FC<FinancesViewProps> = ({
                               ? settings.wifeName
                               : 'Ambos'}
                           </span>
-                          {bill.recurring && <span>• Recorrente</span>}
                         </div>
-
-                        {bill.notes && (
-                          <p className="text-xs text-slate-400 mt-1">💡 {bill.notes}</p>
-                        )}
                       </div>
                     </div>
 
@@ -393,16 +441,12 @@ export const FinancesView: React.FC<FinancesViewProps> = ({
                       <span className="text-base font-extrabold text-white">
                         {formatCurrency(bill.amount)}
                       </span>
-
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => deleteBill(bill.id)}
-                          className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition"
-                          title="Excluir"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
+                      <button
+                        onClick={() => deleteBill(bill.id)}
+                        className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
                 );
@@ -449,7 +493,6 @@ export const FinancesView: React.FC<FinancesViewProps> = ({
                           ? settings.wifeName
                           : 'Ambos'}
                       </span>
-                      <span>• Data: {formatDateBR(inc.date)}</span>
                     </div>
                   </div>
 
@@ -460,7 +503,6 @@ export const FinancesView: React.FC<FinancesViewProps> = ({
                     <button
                       onClick={() => deleteIncome(inc.id)}
                       className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition"
-                      title="Excluir"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -472,7 +514,7 @@ export const FinancesView: React.FC<FinancesViewProps> = ({
         </div>
       )}
 
-      {/* SUB-TAB 3: CLIENTES & RECEBIMENTOS */}
+      {/* SUB-TAB 3: CLIENTES & CONSUMO / HISTÓRICO */}
       {activeSubTab === 'clients' && (
         <div className="space-y-4">
           <div className="bg-slate-800/70 p-4 rounded-xl border border-slate-700 flex justify-between items-center">
@@ -498,56 +540,44 @@ export const FinancesView: React.FC<FinancesViewProps> = ({
                       <h3 className="font-bold text-white text-sm sm:text-base">
                         {c.clientName}
                       </h3>
+                      <span className="px-2 py-0.5 text-[10px] font-bold bg-slate-900 rounded text-amber-300 border border-slate-700">
+                        Atendido por: {c.responsible === 'ele' ? settings.husbandName : c.responsible === 'ela' ? settings.wifeName : 'Ambos'}
+                      </span>
                       {c.status === 'pago' ? (
-                        <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-500/20 text-emerald-400 rounded-full border border-emerald-500/30">
+                        <span className="px-2 py-0.5 text-[10px] font-bold bg-emerald-500/20 text-emerald-400 rounded-full">
                           RECEBIDO/PAGO
                         </span>
-                      ) : c.status === 'atrasado' ? (
-                        <span className="px-2 py-0.5 text-[10px] font-bold bg-red-500/20 text-red-400 rounded-full border border-red-500/30">
-                          ATRASADO
-                        </span>
                       ) : (
-                        <span className="px-2 py-0.5 text-[10px] font-medium bg-sky-500/20 text-sky-300 rounded-full border border-sky-500/30">
+                        <span className="px-2 py-0.5 text-[10px] font-medium bg-sky-500/20 text-sky-300 rounded-full">
                           PENDENTE
                         </span>
                       )}
                     </div>
                     <p className="text-xs text-slate-300 mt-1">{c.serviceName}</p>
                     <p className="text-[11px] text-slate-400 mt-0.5">
-                      Previsto para: {formatDateBR(c.expectedDate)}{' '}
-                      {c.contactInfo && `• Contato: ${c.contactInfo}`}
+                      Previsto: {formatDateBR(c.expectedDate)} • Consumos salvos: {c.consumptionHistory?.length || 0}
                     </p>
-                    {c.notes && <p className="text-xs text-slate-400 mt-1">💡 {c.notes}</p>}
                   </div>
 
-                  <div className="flex items-center justify-between sm:justify-end gap-3 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-700/50">
-                    <span className="text-base font-extrabold text-sky-400">
+                  <div className="flex items-center justify-between sm:justify-end gap-2 border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-700/50">
+                    <span className="text-base font-extrabold text-sky-400 mr-2">
                       {formatCurrency(c.amount)}
                     </span>
 
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => {
-                          const nextStatus: ClientStatus =
-                            c.status === 'pendente'
-                              ? 'pago'
-                              : c.status === 'pago'
-                              ? 'atrasado'
-                              : 'pendente';
-                          updateClient(c.id, { status: nextStatus });
-                        }}
-                        className="px-2.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs text-slate-200 font-medium transition"
-                      >
-                        Alterar Status
-                      </button>
-                      <button
-                        onClick={() => deleteClient(c.id)}
-                        className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition"
-                        title="Excluir"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => setSelectedClientForHistory(c)}
+                      className="px-2.5 py-1.5 rounded-lg bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 text-xs font-semibold flex items-center gap-1 border border-sky-500/30"
+                      title="Ver Histórico de Consumo"
+                    >
+                      <History className="w-3.5 h-3.5" /> Consumo & Histórico
+                    </button>
+
+                    <button
+                      onClick={() => deleteClient(c.id)}
+                      className="p-2 text-slate-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
               ))
@@ -566,12 +596,9 @@ export const FinancesView: React.FC<FinancesViewProps> = ({
                   ? 'Cadastrar Conta a Pagar'
                   : modalType === 'income'
                   ? 'Cadastrar Entrada de Dinheiro'
-                  : 'Cadastrar Cliente / Recebimento'}
+                  : 'Cadastrar Cliente'}
               </h3>
-              <button
-                onClick={() => setIsModalOpen(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-white"
-              >
+              <button onClick={() => setIsModalOpen(false)} className="p-1 text-slate-400 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -580,23 +607,19 @@ export const FinancesView: React.FC<FinancesViewProps> = ({
               {modalType === 'bill' && (
                 <>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      Descrição da Conta *
-                    </label>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">Descrição da Conta *</label>
                     <input
                       type="text"
                       required
-                      placeholder="Ex: Aluguel, Luz, Internet..."
+                      placeholder="Ex: Aluguel, Luz..."
                       value={billDesc}
                       onChange={(e) => setBillDesc(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-rose-500"
+                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white"
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">
-                        Valor (R$) *
-                      </label>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">Valor (R$) *</label>
                       <input
                         type="number"
                         step="0.01"
@@ -604,78 +627,19 @@ export const FinancesView: React.FC<FinancesViewProps> = ({
                         placeholder="0.00"
                         value={billAmount}
                         onChange={(e) => setBillAmount(e.target.value)}
-                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-rose-500"
+                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">
-                        Data de Vencimento *
-                      </label>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">Vencimento *</label>
                       <input
                         type="date"
                         required
                         value={billDueDate}
                         onChange={(e) => setBillDueDate(e.target.value)}
-                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-rose-500"
+                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white"
                       />
                     </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">
-                        Categoria
-                      </label>
-                      <select
-                        value={billCategory}
-                        onChange={(e) => setBillCategory(e.target.value as CategoryBill)}
-                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-rose-500"
-                      >
-                        <option value="moradia">🏠 Moradia</option>
-                        <option value="alimentacao">🛒 Alimentação</option>
-                        <option value="saude">🏥 Saúde</option>
-                        <option value="servicos">⚡ Serviços & TI</option>
-                        <option value="lazer">🌴 Lazer</option>
-                        <option value="outros">📌 Outros</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">
-                        Responsável
-                      </label>
-                      <select
-                        value={billResponsible}
-                        onChange={(e) => setBillResponsible(e.target.value as ResponsiblePerson)}
-                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-rose-500"
-                      >
-                        <option value="ambos">👩‍❤️‍👨 Ambos</option>
-                        <option value="ele">🙋‍♂️ {settings.husbandName}</option>
-                        <option value="ela">🙋‍♀️ {settings.wifeName}</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="billRecurring"
-                      checked={billRecurring}
-                      onChange={(e) => setBillRecurring(e.target.checked)}
-                      className="w-4 h-4 rounded text-rose-500 accent-rose-500"
-                    />
-                    <label htmlFor="billRecurring" className="text-xs text-slate-300 font-medium">
-                      Conta Recorrente (Mensal)
-                    </label>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      Observações
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Detalhes adicionais..."
-                      value={billNotes}
-                      onChange={(e) => setBillNotes(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white"
-                    />
                   </div>
                 </>
               )}
@@ -683,23 +647,19 @@ export const FinancesView: React.FC<FinancesViewProps> = ({
               {modalType === 'income' && (
                 <>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      Descrição da Receita *
-                    </label>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">Descrição da Receita *</label>
                     <input
                       type="text"
                       required
-                      placeholder="Ex: Salário, Projeto Extra..."
+                      placeholder="Ex: Salário..."
                       value={incDesc}
                       onChange={(e) => setIncDesc(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white"
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">
-                        Valor (R$) *
-                      </label>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">Valor (R$) *</label>
                       <input
                         type="number"
                         step="0.01"
@@ -707,44 +667,11 @@ export const FinancesView: React.FC<FinancesViewProps> = ({
                         placeholder="0.00"
                         value={incAmount}
                         onChange={(e) => setIncAmount(e.target.value)}
-                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">
-                        Data do Recebimento *
-                      </label>
-                      <input
-                        type="date"
-                        required
-                        value={incDate}
-                        onChange={(e) => setIncDate(e.target.value)}
-                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">
-                        Categoria
-                      </label>
-                      <select
-                        value={incCategory}
-                        onChange={(e) =>
-                          setIncCategory(e.target.value as 'salario' | 'freelance' | 'vendas' | 'outros')
-                        }
                         className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white"
-                      >
-                        <option value="salario">💼 Salário</option>
-                        <option value="freelance">🚀 Freelance</option>
-                        <option value="vendas">🛒 Vendas</option>
-                        <option value="outros">📌 Outros</option>
-                      </select>
+                      />
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">
-                        Quem Recebeu
-                      </label>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">Quem Recebeu</label>
                       <select
                         value={incReceivedBy}
                         onChange={(e) => setIncReceivedBy(e.target.value as ResponsiblePerson)}
@@ -756,53 +683,25 @@ export const FinancesView: React.FC<FinancesViewProps> = ({
                       </select>
                     </div>
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      Observações
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Detalhes adicionais..."
-                      value={incNotes}
-                      onChange={(e) => setIncNotes(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white"
-                    />
-                  </div>
                 </>
               )}
 
               {modalType === 'client' && (
                 <>
                   <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      Nome do Cliente *
-                    </label>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">Nome do Cliente *</label>
                     <input
                       type="text"
                       required
-                      placeholder="Ex: Dra. Ana, Empresa X..."
+                      placeholder="Ex: Dra. Ana..."
                       value={clientName}
                       onChange={(e) => setClientName(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-sky-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      Serviço / Produto Prestado
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Ex: Consultoria, Criação de Site..."
-                      value={clientService}
-                      onChange={(e) => setClientService(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-sky-500"
+                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white"
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">
-                        Valor (R$) *
-                      </label>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">Valor Inicial (R$) *</label>
                       <input
                         type="number"
                         step="0.01"
@@ -810,65 +709,150 @@ export const FinancesView: React.FC<FinancesViewProps> = ({
                         placeholder="0.00"
                         value={clientAmount}
                         onChange={(e) => setClientAmount(e.target.value)}
-                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-sky-500"
+                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-slate-300 mb-1">
-                        Data Prevista *
-                      </label>
-                      <input
-                        type="date"
-                        required
-                        value={clientExpectedDate}
-                        onChange={(e) => setClientExpectedDate(e.target.value)}
-                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-sky-500"
-                      />
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">Quem Atende (Modo)</label>
+                      <select
+                        value={clientResponsible}
+                        onChange={(e) => setClientResponsible(e.target.value as ResponsiblePerson)}
+                        className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white"
+                      >
+                        <option value="ele">🙋‍♂️ Modo {settings.husbandName}</option>
+                        <option value="ela">🙋‍♀️ Modo {settings.wifeName}</option>
+                        <option value="ambos">👩‍❤️‍👨 Ambos</option>
+                      </select>
                     </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      Contato / Telefone
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Ex: (11) 99999-8888"
-                      value={clientContact}
-                      onChange={(e) => setClientContact(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      Observações
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Detalhes..."
-                      value={clientNotes}
-                      onChange={(e) => setClientNotes(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white"
-                    />
                   </div>
                 </>
               )}
 
               <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 font-medium text-xs"
-                >
+                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-300 font-medium text-xs">
                   Cancelar
                 </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs shadow-lg shadow-emerald-600/30"
-                >
+                <button type="submit" className="px-5 py-2.5 rounded-xl bg-emerald-600 text-white font-semibold text-xs">
                   Salvar
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* CLIENT CONSUMPTION & HISTORY DRAWER */}
+      {selectedClientForHistory && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-xl rounded-2xl p-5 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto relative">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <ShoppingBag className="w-5 h-5 text-sky-400" />
+                  Histórico de Consumo: {selectedClientForHistory.clientName}
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Cadastre produtos/serviços consumidos no modo {settings.husbandName} ou {settings.wifeName}.
+                </p>
+              </div>
+              <button onClick={() => setSelectedClientForHistory(null)} className="p-1 text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Form Add Product Consumed */}
+            <form onSubmit={handleAddConsumptionLog} className="bg-slate-800/80 p-3.5 rounded-xl border border-slate-700/60 space-y-3">
+              <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+                + Adicionar Item / Produto Consumido
+              </h4>
+              <div>
+                <label className="block text-[11px] text-slate-300 mb-1">Nome do Produto / Serviço *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ex: Consultoria, Produto X..."
+                  value={historyProductName}
+                  onChange={(e) => setHistoryProductName(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white"
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-xs">
+                <div>
+                  <label className="block text-[11px] text-slate-300 mb-1">Valor Unitário *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    placeholder="0.00"
+                    value={historyUnitPrice}
+                    onChange={(e) => setHistoryUnitPrice(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] text-slate-300 mb-1">Qtd</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={historyQuantity}
+                    onChange={(e) => setHistoryQuantity(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] text-slate-300 mb-1">Vendido por</label>
+                  <select
+                    value={historySoldBy}
+                    onChange={(e) => setHistorySoldBy(e.target.value as ResponsiblePerson)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-white"
+                  >
+                    <option value="ele">🙋‍♂️ {settings.husbandName}</option>
+                    <option value="ela">🙋‍♀️ {settings.wifeName}</option>
+                  </select>
+                </div>
+              </div>
+              <button
+                type="submit"
+                className="w-full py-2 bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs rounded-xl shadow transition"
+              >
+                + Registrar Consumo no Histórico
+              </button>
+            </form>
+
+            {/* Consumption History List */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold text-slate-300 flex justify-between items-center">
+                <span>Histórico Registrado ({selectedClientForHistory.consumptionHistory?.length || 0})</span>
+                <span className="text-sky-400 font-extrabold">
+                  Total: {formatCurrency(selectedClientForHistory.amount)}
+                </span>
+              </h4>
+
+              {(!selectedClientForHistory.consumptionHistory || selectedClientForHistory.consumptionHistory.length === 0) ? (
+                <p className="text-center py-6 text-slate-400 text-xs">Nenhum consumo individual registrado ainda.</p>
+              ) : (
+                <div className="space-y-2">
+                  {selectedClientForHistory.consumptionHistory.map((log) => (
+                    <div key={log.id} className="bg-slate-800 p-3 rounded-xl border border-slate-700 flex items-center justify-between gap-2 text-xs">
+                      <div>
+                        <p className="font-bold text-white">{log.productName}</p>
+                        <p className="text-[10px] text-slate-400">
+                          {log.quantity}x {formatCurrency(log.unitPrice)} • {formatDateBR(log.date)}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-extrabold text-sky-300">{formatCurrency(log.totalAmount)}</span>
+                        <div>
+                          <span className="px-2 py-0.5 rounded text-[9px] font-bold bg-slate-900 text-amber-300 border border-slate-700">
+                            Vendido por: {log.soldBy === 'ele' ? settings.husbandName : settings.wifeName}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
