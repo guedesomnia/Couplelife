@@ -21,6 +21,7 @@ export function App() {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [userFilter, setUserFilter] = useState<'all' | 'ele' | 'ela' | 'ambos'>('all');
 
   // Initial State from LocalStorage
   const initial = getInitialData();
@@ -239,16 +240,18 @@ export function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans max-w-full overflow-x-hidden">
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         openSettings={() => setIsSettingsOpen(true)}
         husbandName={settings.husbandName}
         wifeName={settings.wifeName}
+        userFilter={userFilter}
+        setUserFilter={setUserFilter}
       />
 
-      <main className="flex-1 max-w-5xl w-full mx-auto px-4 pt-4 pb-24">
+      <main className="flex-1 max-w-5xl w-full mx-auto px-3 sm:px-4 pt-3 sm:pt-4 pb-24">
         {activeTab === 'dashboard' && (
           <DashboardView
             routines={routines}
@@ -257,6 +260,7 @@ export function App() {
             clients={clients}
             goals={goals}
             settings={settings}
+            userFilter={userFilter}
             setActiveTab={setActiveTab}
             toggleRoutine={toggleRoutine}
             toggleBill={toggleBill}
