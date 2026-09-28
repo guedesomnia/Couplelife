@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type {
   RoutineItem,
   BillItem,
@@ -19,11 +19,17 @@ import { CalendarView } from './components/CalendarView';
 import { WeeklyReportView } from './components/WeeklyReportView';
 import { SettingsModal } from './components/SettingsModal';
 
+export type SyncStatusType = 'offline' | 'synced' | 'syncing' | 'error';
+
 export function App() {
   const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [userFilter, setUserFilter] = useState<'all' | 'ele' | 'ela' | 'ambos'>('all');
+
+  // Sync Status State
+  const [syncStatus, setSyncStatus] = useState<SyncStatusType>('offline');
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
 
   // Initial State from LocalStorage
   const initial = getInitialData();
@@ -33,6 +39,9 @@ export function App() {
   const [clients, setClients] = useState<ClientItem[]>(initial.clients);
   const [goals, setGoals] = useState<GoalItem[]>(initial.goals);
   const [settings, setSettings] = useState<AppSettings>(initial.settings);
+
+  // Flag to avoid loop syncing when receiving data from cloud
+  const isReceivingRemoteData = useRef(false);
 
   // Listen for PWA Install Prompt
   useEffect(() => {
@@ -46,75 +55,131 @@ export function App() {
     };
   }, []);
 
-  // Save to LocalStorage whenever state updates
-  useEffect(() => {
-    saveToStorage('casal_routines', routines);
-  }, [routines]);
+  // Save to LocalStorage
+  useEffect(() => { saveToStorage('casal_routines', routines); }, [routines]);
+  useEffect(() => { saveToStorage('casal_bills', bills); }, [bills]);
+  useEffect(() => { saveToStorage('casal_incomes', incomes); }, [incomes]);
+  useEffect(() => { saveToStorage('casal_clients', clients); }, [clients]);
+  useEffect(() => { saveToStorage('casal_goals', goals); }, [goals]);
+  useEffect(() => { saveToStorage('casal_settings', settings); }, [settings]);
 
-  useEffect(() => {
-    saveToStorage('casal_bills', bills);
-  }, [bills]);
-
-  useEffect(() => {
-    saveToStorage('casal_incomes', incomes);
-  }, [incomes]);
-
-  useEffect(() => {
-    saveToStorage('casal_clients', clients);
-  }, [clients]);
-
-  useEffect(() => {
-    saveToStorage('casal_goals', goals);
-  }, [goals]);
-
-  useEffect(() => {
-    saveToStorage('casal_settings', settings);
-  }, [settings]);
-
-  // Optional Supabase Realtime Cloud Sync
-  useEffect(() => {
-    if (!settings.supabaseUrl || !settings.supabaseKey) return;
-    const client = getSupabase(settings.supabaseUrl, settings.supabaseKey);
+  // Fetch Cloud Data
+  const fetchCloudData = async (client: any) => {
     if (!client) return;
+    try {
+      setSyncStatus('syncing');
+      const { data, error } = await client
+        .from('casal_sync')
+        .select('data, updated_at')
+        .eq('id', 'main_data')
+        .single();
 
-    const fetchCloudData = async () => {
-      try {
-        const { data, error } = await client.from('casal_sync').select('data').eq('id', 'main_data').single();
-        if (data && data.data && !error) {
-          if (data.data.routines) setRoutines(data.data.routines);
-          if (data.data.bills) setBills(data.data.bills);
-          if (data.data.incomes) setIncomes(data.data.incomes);
-          if (data.data.clients) setClients(data.data.clients);
-          if (data.data.goals) setGoals(data.data.goals);
-        }
-      } catch (err) {
-        console.log('Sem dados remotos prévios no Supabase:', err);
+      if (data && data.data && !error) {
+        isReceivingRemoteData.current = true;
+        if (data.data.routines) setRoutines(data.data.routines);
+        if (data.data.bills) setBills(data.data.bills);
+        if (data.data.incomes) setIncomes(data.data.incomes);
+        if (data.data.clients) setClients(data.data.clients);
+        if (data.data.goals) setGoals(data.data.goals);
+
+        setTimeout(() => {
+          isReceivingRemoteData.current = false;
+        }, 300);
+
+        setSyncStatus('synced');
+        setLastSyncTime(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      } else {
+        setSyncStatus('synced');
       }
-    };
+    } catch (err) {
+      console.error('Erro ao buscar dados remotos:', err);
+      setSyncStatus('error');
+    }
+  };
 
-    fetchCloudData();
-  }, [settings.supabaseUrl, settings.supabaseKey]);
+  // Push Data to Cloud
+  const pushToCloud = async () => {
+    if (!settings.supabaseUrl || !settings.supabaseKey) {
+      setSyncStatus('offline');
+      return;
+    }
+    if (isReceivingRemoteData.current) return;
 
-  // Sync state to Supabase when updated
-  const syncToCloud = async () => {
-    if (!settings.supabaseUrl || !settings.supabaseKey) return;
     const client = getSupabase(settings.supabaseUrl, settings.supabaseKey);
     if (!client) return;
 
     try {
-      await client.from('casal_sync').upsert({
+      setSyncStatus('syncing');
+      const { error } = await client.from('casal_sync').upsert({
         id: 'main_data',
         data: { routines, bills, incomes, clients, goals },
         updated_at: new Date().toISOString(),
       });
+
+      if (!error) {
+        setSyncStatus('synced');
+        setLastSyncTime(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      } else {
+        console.error('Erro de permissão no Supabase:', error);
+        setSyncStatus('error');
+      }
     } catch (err) {
-      console.error('Erro ao sincronizar com Supabase:', err);
+      console.error('Erro ao salvar no Supabase:', err);
+      setSyncStatus('error');
     }
   };
 
+  // Sync Setup & Realtime Channel + Polling Fallback
   useEffect(() => {
-    syncToCloud();
+    if (!settings.supabaseUrl || !settings.supabaseKey) {
+      setSyncStatus('offline');
+      return;
+    }
+
+    const client = getSupabase(settings.supabaseUrl, settings.supabaseKey);
+    if (!client) {
+      setSyncStatus('offline');
+      return;
+    }
+
+    // Initial Fetch
+    fetchCloudData(client);
+
+    // Setup Polling every 6 seconds for guaranteed multi-device updates
+    const interval = setInterval(() => {
+      fetchCloudData(client);
+    }, 6000);
+
+    // Setup Supabase Realtime Subscription
+    const channel = client
+      .channel('casal_realtime_channel')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'casal_sync' },
+        () => {
+          fetchCloudData(client);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      clearInterval(interval);
+      client.removeChannel(channel);
+    };
+  }, [settings.supabaseUrl, settings.supabaseKey]);
+
+  // Push to cloud whenever data changes
+  useEffect(() => {
+    pushToCloud();
   }, [routines, bills, incomes, clients, goals]);
+
+  const manualSync = () => {
+    if (!settings.supabaseUrl || !settings.supabaseKey) return;
+    const client = getSupabase(settings.supabaseUrl, settings.supabaseKey);
+    if (client) {
+      fetchCloudData(client);
+    }
+  };
 
   // Handlers for Routines
   const addRoutine = (newRoutine: Omit<RoutineItem, 'id' | 'createdAt'>) => {
@@ -250,6 +315,9 @@ export function App() {
         wifeName={settings.wifeName}
         userFilter={userFilter}
         setUserFilter={setUserFilter}
+        syncStatus={syncStatus}
+        lastSyncTime={lastSyncTime}
+        manualSync={manualSync}
       />
 
       <main className="flex-1 max-w-5xl w-full mx-auto px-3 sm:px-4 pt-3 sm:pt-4 pb-24">
@@ -336,6 +404,8 @@ export function App() {
           onSaveSettings={(newSettings) => setSettings(newSettings)}
           onClose={() => setIsSettingsOpen(false)}
           deferredPrompt={deferredPrompt}
+          syncStatus={syncStatus}
+          manualSync={manualSync}
         />
       )}
     </div>

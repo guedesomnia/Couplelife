@@ -1,14 +1,17 @@
 import React, { useState } from 'react';
 import type { AppSettings } from '../types';
-import { X, Save, Download, Upload, Smartphone, Cloud, Code, Check } from 'lucide-react';
+import { X, Save, Download, Upload, Smartphone, Cloud, Code, Check, RefreshCw } from 'lucide-react';
 import { exportAppDataJSON, importAppDataJSON } from '../utils/storage';
 import { SQL_SCHEMA_INSTRUCTIONS } from '../utils/supabase';
+import type { SyncStatusType } from '../App';
 
 interface SettingsModalProps {
   settings: AppSettings;
   onSaveSettings: (newSettings: AppSettings) => void;
   onClose: () => void;
   deferredPrompt: any; // PWA install prompt event
+  syncStatus?: SyncStatusType;
+  manualSync?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -16,6 +19,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onSaveSettings,
   onClose,
   deferredPrompt,
+  syncStatus = 'offline',
+  manualSync,
 }) => {
   const [husbandName, setHusbandName] = useState(settings.husbandName);
   const [wifeName, setWifeName] = useState(settings.wifeName);
@@ -125,14 +130,52 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </div>
 
-          {/* Section 2: Instalar no Celular */}
+          {/* Section 2: Status do Sync */}
+          <div className="space-y-3 bg-slate-800/60 p-4 rounded-xl border border-slate-700/50">
+            <div className="flex items-center justify-between">
+              <h4 className="font-bold text-white text-xs uppercase tracking-wider flex items-center gap-1.5">
+                <Cloud className="w-4 h-4 text-sky-400" /> Status da Sincronização
+              </h4>
+              {syncStatus !== 'offline' && manualSync && (
+                <button
+                  type="button"
+                  onClick={manualSync}
+                  className="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" /> Forçar Sync Agora
+                </button>
+              )}
+            </div>
+
+            <div className="text-xs">
+              {syncStatus === 'synced' && (
+                <p className="text-emerald-400 font-bold flex items-center gap-1.5">
+                  ✅ Nuvem Supabase Conectada e Sincronizando!
+                </p>
+              )}
+              {syncStatus === 'syncing' && (
+                <p className="text-amber-300 font-bold flex items-center gap-1.5">
+                  🔄 Sincronizando dados com a nuvem...
+                </p>
+              )}
+              {syncStatus === 'offline' && (
+                <p className="text-slate-400">
+                  📱 Modo Local: Os dados estão salvos com segurança no seu aparelho.
+                </p>
+              )}
+              {syncStatus === 'error' && (
+                <p className="text-red-400 font-bold">
+                  ⚠️ Erro ao conectar no Supabase. Verifique a URL e a Anon Key abaixo.
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Section 3: Instalar no Celular */}
           <div className="space-y-3 bg-slate-800/60 p-4 rounded-xl border border-slate-700/50">
             <h4 className="font-bold text-white text-xs uppercase tracking-wider flex items-center gap-1.5">
-              <Smartphone className="w-4 h-4 text-rose-400" /> 2. Instalação no Celular (iOS & Android)
+              <Smartphone className="w-4 h-4 text-rose-400" /> 3. Instalação no Celular (iOS & Android)
             </h4>
-            <p className="text-xs text-slate-300">
-              Funciona 100% no seu telefone sem ocupar espaço no seu servidor!
-            </p>
             <button
               type="button"
               onClick={handleInstallPWA}
@@ -142,14 +185,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </button>
           </div>
 
-          {/* Section 3: Backup Local (JSON) */}
+          {/* Section 4: Backup Local (JSON) */}
           <div className="space-y-3 bg-slate-800/60 p-4 rounded-xl border border-slate-700/50">
             <h4 className="font-bold text-white text-xs uppercase tracking-wider">
-              3. Compartilhar / Backup via Arquivo JSON
+              4. Compartilhar / Backup via Arquivo JSON
             </h4>
-            <p className="text-xs text-slate-300">
-              Você pode exportar seus dados em 1 clique e enviar pelo WhatsApp para sincronizar no celular do seu cônjuge.
-            </p>
 
             <div className="flex gap-2">
               <button
@@ -176,14 +216,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             )}
           </div>
 
-          {/* Section 4: Supabase Sync (Opcional - Gratuito) */}
+          {/* Section 5: Supabase Cloud Credentials */}
           <div className="space-y-3 bg-slate-800/60 p-4 rounded-xl border border-slate-700/50">
             <h4 className="font-bold text-white text-xs uppercase tracking-wider flex items-center gap-1.5">
-              <Cloud className="w-4 h-4 text-sky-400" /> 4. Sincronização em Tempo Real (Supabase Grátis)
+              <Cloud className="w-4 h-4 text-sky-400" /> 5. Credenciais do Supabase (Nuvem)
             </h4>
-            <p className="text-xs text-slate-300">
-              Se quiser que cada alteração feita no seu telefone apareça instantaneamente no celular da sua esposa via nuvem (sem pagar nada de servidor), configure abaixo:
-            </p>
 
             <div>
               <label className="block text-xs text-slate-300 mb-1">Supabase URL</label>
@@ -197,10 +234,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs text-slate-300 mb-1">Supabase Anon Key</label>
+              <label className="block text-xs text-slate-300 mb-1">Supabase Anon Key / Publishable Key</label>
               <input
                 type="password"
-                placeholder="eyJhbGciOiJIUzI1NiIsIn..."
+                placeholder="sb_publishable_..."
                 value={supabaseKey}
                 onChange={(e) => setSupabaseKey(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono text-xs"
@@ -214,7 +251,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 className="w-full py-2 rounded-xl bg-slate-900 hover:bg-slate-950 text-slate-300 text-xs font-mono flex items-center justify-center gap-2 border border-slate-700"
               >
                 {copiedSql ? <Check className="w-4 h-4 text-emerald-400" /> : <Code className="w-4 h-4" />}
-                {copiedSql ? 'Copiado!' : 'Copiar Código SQL para criar Tabela no Supabase'}
+                {copiedSql ? 'Copiado!' : 'Copiar Código SQL Atualizado (Liberar RLS + Realtime)'}
               </button>
             </div>
           </div>

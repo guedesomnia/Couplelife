@@ -1,5 +1,6 @@
 import React from 'react';
-import { Home, CheckSquare, DollarSign, Target, Settings, Heart, Calendar, TrendingUp } from 'lucide-react';
+import { Home, CheckSquare, DollarSign, Target, Settings, Heart, Calendar, TrendingUp, RefreshCw, Cloud, CloudOff } from 'lucide-react';
+import type { SyncStatusType } from '../App';
 
 export type TabType = 'dashboard' | 'routines' | 'finances' | 'goals' | 'calendar' | 'weekly';
 
@@ -11,6 +12,9 @@ interface NavbarProps {
   wifeName: string;
   userFilter: 'all' | 'ele' | 'ela' | 'ambos';
   setUserFilter: (filter: 'all' | 'ele' | 'ela' | 'ambos') => void;
+  syncStatus?: SyncStatusType;
+  lastSyncTime?: string | null;
+  manualSync?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -21,6 +25,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   wifeName,
   userFilter,
   setUserFilter,
+  syncStatus = 'offline',
+  lastSyncTime,
+  manualSync,
 }) => {
   return (
     <>
@@ -37,11 +44,44 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span className="text-rose-400 font-serif">&</span>
                 <span className="text-pink-400">{wifeName}</span>
               </h1>
-              <p className="text-[9px] text-slate-400 truncate">Nossa Vida em Casal</p>
+              {/* Sync Status Badge */}
+              <div className="flex items-center gap-1.5 text-[9px]">
+                {syncStatus === 'synced' && (
+                  <span className="text-emerald-400 font-semibold flex items-center gap-0.5" title={`Sincronizado às ${lastSyncTime}`}>
+                    <Cloud className="w-3 h-3 text-emerald-400" /> Nuvem Conectada {lastSyncTime && `(${lastSyncTime})`}
+                  </span>
+                )}
+                {syncStatus === 'syncing' && (
+                  <span className="text-amber-300 font-semibold flex items-center gap-0.5 animate-pulse">
+                    <RefreshCw className="w-3 h-3 text-amber-300 animate-spin" /> Sincronizando...
+                  </span>
+                )}
+                {syncStatus === 'offline' && (
+                  <span className="text-slate-400 flex items-center gap-0.5">
+                    <CloudOff className="w-3 h-3 text-slate-500" /> Salvo no Aparelho
+                  </span>
+                )}
+                {syncStatus === 'error' && (
+                  <span className="text-red-400 font-semibold flex items-center gap-0.5">
+                    <CloudOff className="w-3 h-3 text-red-400" /> Erro no Sync (Verifique as Keys)
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
+            {/* Sync Refresh Button */}
+            {syncStatus !== 'offline' && manualSync && (
+              <button
+                onClick={manualSync}
+                className="p-1.5 rounded-xl bg-slate-800/90 text-slate-300 hover:text-white hover:bg-slate-700 transition active:scale-95 border border-slate-700/60 shrink-0"
+                title="Sincronizar Agora"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${syncStatus === 'syncing' ? 'animate-spin text-amber-300' : 'text-slate-300'}`} />
+              </button>
+            )}
+
             {/* Quick Person Toggle Filter */}
             <div className="flex items-center bg-slate-800/90 rounded-xl p-0.5 border border-slate-700/60">
               <button
@@ -90,7 +130,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </header>
 
-      {/* Bottom Floating Navigation Bar with iOS Safe Area Bottom padding */}
+      {/* Bottom Floating Navigation Bar */}
       <nav className="fixed bottom-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur-xl border-t border-slate-800/80 px-1 pt-1.5 pb-safe shadow-2xl">
         <div className="max-w-md mx-auto flex items-center justify-around">
           <button
