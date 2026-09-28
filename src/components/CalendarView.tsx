@@ -129,8 +129,6 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             const { dayBills, dayIncomes, dayClients, dayRoutines } = getEventsForDate(dateKey);
 
             const isToday = dateKey === todayStr;
-            const hasEvents =
-              dayBills.length > 0 || dayIncomes.length > 0 || dayClients.length > 0 || dayRoutines.length > 0;
 
             return (
               <div
