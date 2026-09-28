@@ -7,7 +7,7 @@ import type {
   GoalItem,
   AppSettings,
 } from './types';
-import { getInitialData, saveToStorage } from './utils/storage';
+import { getInitialData, saveToStorage, parseWhatsAppSyncLink } from './utils/storage';
 import { getSupabase } from './utils/supabase';
 import { Navbar } from './components/Navbar';
 import type { TabType } from './components/Navbar';
@@ -30,6 +30,7 @@ export function App() {
   // Sync Status State
   const [syncStatus, setSyncStatus] = useState<SyncStatusType>('offline');
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
+  const [linkSyncBanner, setLinkSyncBanner] = useState<string | null>(null);
 
   // Initial State from LocalStorage
   const initial = getInitialData();
@@ -44,6 +45,27 @@ export function App() {
   const isReceivingRemoteData = useRef(false);
   const hasLoadedInitialCloudData = useRef(false);
   const isFirstRender = useRef(true);
+
+  // Check for 1-Click WhatsApp Sync Link in URL hash
+  useEffect(() => {
+    if (window.location.hash.includes('#syncData=')) {
+      const parsedData = parseWhatsAppSyncLink(window.location.hash);
+      if (parsedData) {
+        isReceivingRemoteData.current = true;
+        if (parsedData.routines) setRoutines((prev) => mergeById(prev, parsedData.routines));
+        if (parsedData.bills) setBills((prev) => mergeById(prev, parsedData.bills));
+        if (parsedData.incomes) setIncomes((prev) => mergeById(prev, parsedData.incomes));
+        if (parsedData.clients) setClients((prev) => mergeById(prev, parsedData.clients));
+        if (parsedData.goals) setGoals((prev) => mergeById(prev, parsedData.goals));
+
+        setLinkSyncBanner('✅ Dados sincronizados com sucesso via Link do WhatsApp!');
+        setTimeout(() => {
+          isReceivingRemoteData.current = false;
+          window.history.replaceState(null, '', window.location.pathname);
+        }, 1000);
+      }
+    }
+  }, []);
 
   // Listen for PWA Install Prompt
   useEffect(() => {
@@ -172,15 +194,12 @@ export function App() {
       return;
     }
 
-    // Fetch cloud data first on load
     fetchCloudData(client);
 
-    // Setup Polling every 4 seconds for immediate multi-device sync
     const interval = setInterval(() => {
       fetchCloudData(client);
     }, 4000);
 
-    // Realtime Postgres Changes Listener
     const channel = client
       .channel('casal_sync_changes')
       .on(
@@ -198,7 +217,6 @@ export function App() {
     };
   }, [settings.supabaseUrl, settings.supabaseKey]);
 
-  // Push local modifications to cloud (skipping first render mount)
   useEffect(() => {
     if (isFirstRender.current) {
       isFirstRender.current = false;
@@ -383,6 +401,12 @@ export function App() {
         lastSyncTime={lastSyncTime}
         manualSync={manualSync}
       />
+
+      {linkSyncBanner && (
+        <div className="bg-emerald-600 text-white text-xs font-bold text-center py-2 px-4 shadow">
+          {linkSyncBanner}
+        </div>
+      )}
 
       <main className="flex-1 max-w-5xl w-full mx-auto px-3 sm:px-4 pt-3 sm:pt-4 pb-24">
         {activeTab === 'dashboard' && (

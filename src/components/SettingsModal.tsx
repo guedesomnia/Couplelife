@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import type { AppSettings } from '../types';
-import { X, Save, Download, Upload, Smartphone, Cloud, Code, Check, RefreshCw } from 'lucide-react';
-import { exportAppDataJSON, importAppDataJSON } from '../utils/storage';
+import { X, Save, Download, Upload, Smartphone, Cloud, Code, Check, RefreshCw, Share2 } from 'lucide-react';
+import { exportAppDataJSON, importAppDataJSON, generateWhatsAppSyncLink } from '../utils/storage';
 import { SQL_SCHEMA_INSTRUCTIONS } from '../utils/supabase';
 import type { SyncStatusType } from '../App';
 
@@ -28,6 +28,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [supabaseKey, setSupabaseKey] = useState(settings.supabaseKey || '');
 
   const [copiedSql, setCopiedSql] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
   const [importStatus, setImportStatus] = useState<string | null>(null);
 
   const handleSave = (e: React.FormEvent) => {
@@ -67,6 +68,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       }
     };
     reader.readAsText(file);
+  };
+
+  const handleShareWhatsAppSyncLink = () => {
+    const link = generateWhatsAppSyncLink();
+    const message = `Olá amor! Abra este link no seu celular para sincronizar os dados do nosso aplicativo:\n\n${link}`;
+    window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`, '_blank');
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 3000);
   };
 
   const handleInstallPWA = async () => {
@@ -130,11 +139,33 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </div>
 
-          {/* Section 2: Status do Sync */}
+          {/* Section 2: 1-Click WhatsApp Sync Link (ZERO SERVER NEEDED!) */}
+          <div className="space-y-3 bg-gradient-to-r from-emerald-950/60 to-slate-800 p-4 rounded-xl border border-emerald-500/40 shadow">
+            <h4 className="font-bold text-emerald-400 text-xs uppercase tracking-wider flex items-center gap-1.5">
+              <Share2 className="w-4 h-4 text-emerald-400" /> 2. Sincronização 1-Clique via WhatsApp
+            </h4>
+            <p className="text-xs text-slate-300">
+              Gere um link com todas as suas finanças e rotinas e envie pelo WhatsApp. Quando ela clicar no link no celular dela, os dados se juntam instantaneamente!
+            </p>
+            <button
+              type="button"
+              onClick={handleShareWhatsAppSyncLink}
+              className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg flex items-center justify-center gap-2 transition"
+            >
+              <Share2 className="w-4 h-4" /> Enviar Link de Atualização pelo WhatsApp
+            </button>
+            {copiedLink && (
+              <p className="text-xs text-emerald-300 font-bold text-center">
+                Link aberto para envio no WhatsApp!
+              </p>
+            )}
+          </div>
+
+          {/* Section 3: Status do Supabase */}
           <div className="space-y-3 bg-slate-800/60 p-4 rounded-xl border border-slate-700/50">
             <div className="flex items-center justify-between">
               <h4 className="font-bold text-white text-xs uppercase tracking-wider flex items-center gap-1.5">
-                <Cloud className="w-4 h-4 text-sky-400" /> Status da Sincronização
+                <Cloud className="w-4 h-4 text-sky-400" /> 3. Nuvem Supabase
               </h4>
               {syncStatus !== 'offline' && manualSync && (
                 <button
@@ -149,32 +180,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
             <div className="text-xs">
               {syncStatus === 'synced' && (
-                <p className="text-emerald-400 font-bold flex items-center gap-1.5">
+                <p className="text-emerald-400 font-bold">
                   ✅ Nuvem Supabase Conectada e Sincronizando!
                 </p>
               )}
               {syncStatus === 'syncing' && (
-                <p className="text-amber-300 font-bold flex items-center gap-1.5">
+                <p className="text-amber-300 font-bold">
                   🔄 Sincronizando dados com a nuvem...
                 </p>
               )}
               {syncStatus === 'offline' && (
                 <p className="text-slate-400">
-                  📱 Modo Local: Os dados estão salvos com segurança no seu aparelho.
+                  📱 Modo Local: Cole a URL da aba Data API do Supabase para ativar a nuvem.
                 </p>
               )}
               {syncStatus === 'error' && (
                 <p className="text-red-400 font-bold">
-                  ⚠️ Erro ao conectar no Supabase. Verifique a URL e a Anon Key abaixo.
+                  ⚠️ Erro ao conectar no Supabase. Vá no Supabase e clique em 'Data API' no menu esquerdo para copiar a URL correta.
                 </p>
               )}
             </div>
           </div>
 
-          {/* Section 3: Instalar no Celular */}
+          {/* Section 4: Instalar no Celular */}
           <div className="space-y-3 bg-slate-800/60 p-4 rounded-xl border border-slate-700/50">
             <h4 className="font-bold text-white text-xs uppercase tracking-wider flex items-center gap-1.5">
-              <Smartphone className="w-4 h-4 text-rose-400" /> 3. Instalação no Celular (iOS & Android)
+              <Smartphone className="w-4 h-4 text-rose-400" /> 4. Instalação no Celular
             </h4>
             <button
               type="button"
@@ -185,10 +216,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </button>
           </div>
 
-          {/* Section 4: Backup Local (JSON) */}
+          {/* Section 5: Backup JSON */}
           <div className="space-y-3 bg-slate-800/60 p-4 rounded-xl border border-slate-700/50">
             <h4 className="font-bold text-white text-xs uppercase tracking-wider">
-              4. Compartilhar / Backup via Arquivo JSON
+              5. Backup em Arquivo JSON
             </h4>
 
             <div className="flex gap-2">
@@ -216,14 +247,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             )}
           </div>
 
-          {/* Section 5: Supabase Cloud Credentials */}
+          {/* Section 6: Supabase Credentials */}
           <div className="space-y-3 bg-slate-800/60 p-4 rounded-xl border border-slate-700/50">
             <h4 className="font-bold text-white text-xs uppercase tracking-wider flex items-center gap-1.5">
-              <Cloud className="w-4 h-4 text-sky-400" /> 5. Credenciais do Supabase (Nuvem)
+              <Cloud className="w-4 h-4 text-sky-400" /> 6. Configurar Credenciais Supabase
             </h4>
 
             <div>
-              <label className="block text-xs text-slate-300 mb-1">Supabase URL</label>
+              <label className="block text-xs text-slate-300 mb-1">
+                Supabase URL (Disponível na aba Data API no menu esquerdo do Supabase)
+              </label>
               <input
                 type="text"
                 placeholder="https://xyz.supabase.co"
@@ -234,7 +267,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
 
             <div>
-              <label className="block text-xs text-slate-300 mb-1">Supabase Anon Key / Publishable Key</label>
+              <label className="block text-xs text-slate-300 mb-1">Supabase Key (Publishable key)</label>
               <input
                 type="password"
                 placeholder="sb_publishable_..."
@@ -251,7 +284,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 className="w-full py-2 rounded-xl bg-slate-900 hover:bg-slate-950 text-slate-300 text-xs font-mono flex items-center justify-center gap-2 border border-slate-700"
               >
                 {copiedSql ? <Check className="w-4 h-4 text-emerald-400" /> : <Code className="w-4 h-4" />}
-                {copiedSql ? 'Copiado!' : 'Copiar Código SQL Atualizado (Liberar RLS + Realtime)'}
+                {copiedSql ? 'Copiado!' : 'Copiar Código SQL Atualizado'}
               </button>
             </div>
           </div>

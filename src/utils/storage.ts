@@ -294,3 +294,34 @@ export const importAppDataJSON = (jsonString: string): boolean => {
     return false;
   }
 };
+
+// Generate 1-Click WhatsApp Sync Link
+export const generateWhatsAppSyncLink = (): string => {
+  const data = getInitialData();
+  const compactJSON = JSON.stringify({
+    routines: data.routines,
+    bills: data.bills,
+    incomes: data.incomes,
+    clients: data.clients,
+    goals: data.goals,
+  });
+  const encoded = encodeURIComponent(btoa(unescape(encodeURIComponent(compactJSON))));
+  const baseUrl = window.location.href.split('#')[0];
+  return `${baseUrl}#syncData=${encoded}`;
+};
+
+// Parse 1-Click WhatsApp Sync Link from URL hash
+export const parseWhatsAppSyncLink = (hashString: string): any | null => {
+  try {
+    if (!hashString.includes('#syncData=')) return null;
+    const encoded = hashString.split('#syncData=')[1];
+    if (!encoded) return null;
+
+    const decoded = decodeURIComponent(escape(atob(decodeURIComponent(encoded))));
+    const parsed = JSON.parse(decoded);
+    return parsed;
+  } catch (err) {
+    console.error('Erro ao decodificar link de sync:', err);
+    return null;
+  }
+};
