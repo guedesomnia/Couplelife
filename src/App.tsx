@@ -40,8 +40,10 @@ export function App() {
   const [goals, setGoals] = useState<GoalItem[]>(initial.goals);
   const [settings, setSettings] = useState<AppSettings>(initial.settings);
 
-  // Flag to avoid loop syncing when receiving data from cloud
+  // Flags to control synchronization flow
   const isReceivingRemoteData = useRef(false);
+  const hasLoadedInitialCloudData = useRef(false);
+  const isFirstRender = useRef(true);
 
   // Listen for PWA Install Prompt
   useEffect(() => {
@@ -63,7 +65,17 @@ export function App() {
   useEffect(() => { saveToStorage('casal_goals', goals); }, [goals]);
   useEffect(() => { saveToStorage('casal_settings', settings); }, [settings]);
 
-  // Fetch Cloud Data
+  // Helper to merge array items by unique ID
+  const mergeById = <T extends { id: string }>(local: T[], remote: T[]): T[] => {
+    const map = new Map<string, T>();
+    remote.forEach((item) => map.set(item.id, item));
+    local.forEach((item) => {
+      if (!map.has(item.id)) map.set(item.id, item);
+    });
+    return Array.from(map.values());
+  };
+
+  // Fetch Cloud Data from Supabase
   const fetchCloudData = async (client: any) => {
     if (!client) return;
     try {
@@ -72,47 +84,65 @@ export function App() {
         .from('casal_sync')
         .select('data, updated_at')
         .eq('id', 'main_data')
-        .single();
+        .maybeSingle();
 
       if (data && data.data && !error) {
         isReceivingRemoteData.current = true;
-        if (data.data.routines) setRoutines(data.data.routines);
-        if (data.data.bills) setBills(data.data.bills);
-        if (data.data.incomes) setIncomes(data.data.incomes);
-        if (data.data.clients) setClients(data.data.clients);
-        if (data.data.goals) setGoals(data.data.goals);
+
+        if (data.data.routines) setRoutines((prev) => mergeById(prev, data.data.routines));
+        if (data.data.bills) setBills((prev) => mergeById(prev, data.data.bills));
+        if (data.data.incomes) setIncomes((prev) => mergeById(prev, data.data.incomes));
+        if (data.data.clients) setClients((prev) => mergeById(prev, data.data.clients));
+        if (data.data.goals) setGoals((prev) => mergeById(prev, data.data.goals));
 
         setTimeout(() => {
           isReceivingRemoteData.current = false;
-        }, 300);
+        }, 500);
 
         setSyncStatus('synced');
         setLastSyncTime(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
       } else {
         setSyncStatus('synced');
       }
+
+      hasLoadedInitialCloudData.current = true;
     } catch (err) {
       console.error('Erro ao buscar dados remotos:', err);
       setSyncStatus('error');
+      hasLoadedInitialCloudData.current = true;
     }
   };
 
   // Push Data to Cloud
-  const pushToCloud = async () => {
+  const pushToCloud = async (overrideData?: {
+    routines?: RoutineItem[];
+    bills?: BillItem[];
+    incomes?: IncomeItem[];
+    clients?: ClientItem[];
+    goals?: GoalItem[];
+  }) => {
     if (!settings.supabaseUrl || !settings.supabaseKey) {
       setSyncStatus('offline');
       return;
     }
-    if (isReceivingRemoteData.current) return;
+    if (isReceivingRemoteData.current || !hasLoadedInitialCloudData.current) return;
 
     const client = getSupabase(settings.supabaseUrl, settings.supabaseKey);
     if (!client) return;
 
     try {
       setSyncStatus('syncing');
+      const payload = {
+        routines: overrideData?.routines || routines,
+        bills: overrideData?.bills || bills,
+        incomes: overrideData?.incomes || incomes,
+        clients: overrideData?.clients || clients,
+        goals: overrideData?.goals || goals,
+      };
+
       const { error } = await client.from('casal_sync').upsert({
         id: 'main_data',
-        data: { routines, bills, incomes, clients, goals },
+        data: payload,
         updated_at: new Date().toISOString(),
       });
 
@@ -120,16 +150,16 @@ export function App() {
         setSyncStatus('synced');
         setLastSyncTime(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
       } else {
-        console.error('Erro de permissão no Supabase:', error);
+        console.error('Erro ao salvar no Supabase:', error);
         setSyncStatus('error');
       }
     } catch (err) {
-      console.error('Erro ao salvar no Supabase:', err);
+      console.error('Erro ao conectar no Supabase:', err);
       setSyncStatus('error');
     }
   };
 
-  // Sync Setup & Realtime Channel + Polling Fallback
+  // Supabase Initial Connect, Realtime Subscription & Polling
   useEffect(() => {
     if (!settings.supabaseUrl || !settings.supabaseKey) {
       setSyncStatus('offline');
@@ -142,17 +172,17 @@ export function App() {
       return;
     }
 
-    // Initial Fetch
+    // Fetch cloud data first on load
     fetchCloudData(client);
 
-    // Setup Polling every 6 seconds for guaranteed multi-device updates
+    // Setup Polling every 4 seconds for immediate multi-device sync
     const interval = setInterval(() => {
       fetchCloudData(client);
-    }, 6000);
+    }, 4000);
 
-    // Setup Supabase Realtime Subscription
+    // Realtime Postgres Changes Listener
     const channel = client
-      .channel('casal_realtime_channel')
+      .channel('casal_sync_changes')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'casal_sync' },
@@ -168,8 +198,12 @@ export function App() {
     };
   }, [settings.supabaseUrl, settings.supabaseKey]);
 
-  // Push to cloud whenever data changes
+  // Push local modifications to cloud (skipping first render mount)
   useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
     pushToCloud();
   }, [routines, bills, incomes, clients, goals]);
 
@@ -188,21 +222,27 @@ export function App() {
       id: `r-${Date.now()}`,
       createdAt: new Date().toISOString().split('T')[0],
     };
-    setRoutines((prev) => [item, ...prev]);
+    const next = [item, ...routines];
+    setRoutines(next);
+    pushToCloud({ routines: next });
   };
 
   const updateRoutine = (id: string, updated: Partial<RoutineItem>) => {
-    setRoutines((prev) => prev.map((r) => (r.id === id ? { ...r, ...updated } : r)));
+    const next = routines.map((r) => (r.id === id ? { ...r, ...updated } : r));
+    setRoutines(next);
+    pushToCloud({ routines: next });
   };
 
   const deleteRoutine = (id: string) => {
-    setRoutines((prev) => prev.filter((r) => r.id !== id));
+    const next = routines.filter((r) => r.id !== id);
+    setRoutines(next);
+    pushToCloud({ routines: next });
   };
 
   const toggleRoutine = (id: string) => {
-    setRoutines((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, completed: !r.completed } : r))
-    );
+    const next = routines.map((r) => (r.id === id ? { ...r, completed: !r.completed } : r));
+    setRoutines(next);
+    pushToCloud({ routines: next });
   };
 
   // Handlers for Bills
@@ -212,29 +252,35 @@ export function App() {
       id: `b-${Date.now()}`,
       createdAt: new Date().toISOString().split('T')[0],
     };
-    setBills((prev) => [item, ...prev]);
+    const next = [item, ...bills];
+    setBills(next);
+    pushToCloud({ bills: next });
   };
 
   const updateBill = (id: string, updated: Partial<BillItem>) => {
-    setBills((prev) => prev.map((b) => (b.id === id ? { ...b, ...updated } : b)));
+    const next = bills.map((b) => (b.id === id ? { ...b, ...updated } : b));
+    setBills(next);
+    pushToCloud({ bills: next });
   };
 
   const deleteBill = (id: string) => {
-    setBills((prev) => prev.filter((b) => b.id !== id));
+    const next = bills.filter((b) => b.id !== id);
+    setBills(next);
+    pushToCloud({ bills: next });
   };
 
   const toggleBill = (id: string) => {
-    setBills((prev) =>
-      prev.map((b) =>
-        b.id === id
-          ? {
-              ...b,
-              paid: !b.paid,
-              paidAt: !b.paid ? new Date().toISOString().split('T')[0] : undefined,
-            }
-          : b
-      )
+    const next = bills.map((b) =>
+      b.id === id
+        ? {
+            ...b,
+            paid: !b.paid,
+            paidAt: !b.paid ? new Date().toISOString().split('T')[0] : undefined,
+          }
+        : b
     );
+    setBills(next);
+    pushToCloud({ bills: next });
   };
 
   // Handlers for Incomes
@@ -244,15 +290,21 @@ export function App() {
       id: `i-${Date.now()}`,
       createdAt: new Date().toISOString().split('T')[0],
     };
-    setIncomes((prev) => [item, ...prev]);
+    const next = [item, ...incomes];
+    setIncomes(next);
+    pushToCloud({ incomes: next });
   };
 
   const updateIncome = (id: string, updated: Partial<IncomeItem>) => {
-    setIncomes((prev) => prev.map((i) => (i.id === id ? { ...i, ...updated } : i)));
+    const next = incomes.map((i) => (i.id === id ? { ...i, ...updated } : i));
+    setIncomes(next);
+    pushToCloud({ incomes: next });
   };
 
   const deleteIncome = (id: string) => {
-    setIncomes((prev) => prev.filter((i) => i.id !== id));
+    const next = incomes.filter((i) => i.id !== id);
+    setIncomes(next);
+    pushToCloud({ incomes: next });
   };
 
   // Handlers for Clients
@@ -262,15 +314,21 @@ export function App() {
       id: `c-${Date.now()}`,
       createdAt: new Date().toISOString().split('T')[0],
     };
-    setClients((prev) => [item, ...prev]);
+    const next = [item, ...clients];
+    setClients(next);
+    pushToCloud({ clients: next });
   };
 
   const updateClient = (id: string, updated: Partial<ClientItem>) => {
-    setClients((prev) => prev.map((c) => (c.id === id ? { ...c, ...updated } : c)));
+    const next = clients.map((c) => (c.id === id ? { ...c, ...updated } : c));
+    setClients(next);
+    pushToCloud({ clients: next });
   };
 
   const deleteClient = (id: string) => {
-    setClients((prev) => prev.filter((c) => c.id !== id));
+    const next = clients.filter((c) => c.id !== id);
+    setClients(next);
+    pushToCloud({ clients: next });
   };
 
   // Handlers for Goals
@@ -280,29 +338,35 @@ export function App() {
       id: `g-${Date.now()}`,
       createdAt: new Date().toISOString().split('T')[0],
     };
-    setGoals((prev) => [item, ...prev]);
+    const next = [item, ...goals];
+    setGoals(next);
+    pushToCloud({ goals: next });
   };
 
   const updateGoal = (id: string, updated: Partial<GoalItem>) => {
-    setGoals((prev) => prev.map((g) => (g.id === id ? { ...g, ...updated } : g)));
+    const next = goals.map((g) => (g.id === id ? { ...g, ...updated } : g));
+    setGoals(next);
+    pushToCloud({ goals: next });
   };
 
   const deleteGoal = (id: string) => {
-    setGoals((prev) => prev.filter((g) => g.id !== id));
+    const next = goals.filter((g) => g.id !== id);
+    setGoals(next);
+    pushToCloud({ goals: next });
   };
 
   const toggleGoalAchieved = (id: string) => {
-    setGoals((prev) =>
-      prev.map((g) =>
-        g.id === id
-          ? {
-              ...g,
-              achieved: !g.achieved,
-              achievedDate: !g.achieved ? new Date().toISOString().split('T')[0] : undefined,
-            }
-          : g
-      )
+    const next = goals.map((g) =>
+      g.id === id
+        ? {
+            ...g,
+            achieved: !g.achieved,
+            achievedDate: !g.achieved ? new Date().toISOString().split('T')[0] : undefined,
+          }
+        : g
     );
+    setGoals(next);
+    pushToCloud({ goals: next });
   };
 
   return (
