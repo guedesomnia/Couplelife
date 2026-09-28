@@ -41,10 +41,24 @@ export function App() {
   const [goals, setGoals] = useState<GoalItem[]>(initial.goals);
   const [settings, setSettings] = useState<AppSettings>(initial.settings);
 
-  // Flags to control synchronization flow
+  // Ref to always hold the latest state synchronously to prevent stale closures during cloud push
+  const appDataRef = useRef({ routines, bills, incomes, clients, goals });
+  useEffect(() => {
+    appDataRef.current = { routines, bills, incomes, clients, goals };
+  }, [routines, bills, incomes, clients, goals]);
+
+  // Flag to avoid recursive cloud push when updating local state from cloud
   const isReceivingRemoteData = useRef(false);
-  const hasLoadedInitialCloudData = useRef(false);
-  const isFirstRender = useRef(true);
+
+  // Helper to merge array items by unique ID (preserves unsynced local items)
+  const mergeById = <T extends { id: string }>(local: T[], remote: T[]): T[] => {
+    const map = new Map<string, T>();
+    remote.forEach((item) => map.set(item.id, item));
+    local.forEach((item) => {
+      if (!map.has(item.id)) map.set(item.id, item);
+    });
+    return Array.from(map.values());
+  };
 
   // Check for 1-Click WhatsApp Sync Link in URL hash
   useEffect(() => {
@@ -52,16 +66,30 @@ export function App() {
       const parsedData = parseWhatsAppSyncLink(window.location.hash);
       if (parsedData) {
         isReceivingRemoteData.current = true;
-        if (parsedData.routines) setRoutines((prev) => mergeById(prev, parsedData.routines));
-        if (parsedData.bills) setBills((prev) => mergeById(prev, parsedData.bills));
-        if (parsedData.incomes) setIncomes((prev) => mergeById(prev, parsedData.incomes));
-        if (parsedData.clients) setClients((prev) => mergeById(prev, parsedData.clients));
-        if (parsedData.goals) setGoals((prev) => mergeById(prev, parsedData.goals));
+        const newRoutines = parsedData.routines ? mergeById(routines, parsedData.routines) : routines;
+        const newBills = parsedData.bills ? mergeById(bills, parsedData.bills) : bills;
+        const newIncomes = parsedData.incomes ? mergeById(incomes, parsedData.incomes) : incomes;
+        const newClients = parsedData.clients ? mergeById(clients, parsedData.clients) : clients;
+        const newGoals = parsedData.goals ? mergeById(goals, parsedData.goals) : goals;
+
+        if (parsedData.routines) setRoutines(newRoutines);
+        if (parsedData.bills) setBills(newBills);
+        if (parsedData.incomes) setIncomes(newIncomes);
+        if (parsedData.clients) setClients(newClients);
+        if (parsedData.goals) setGoals(newGoals);
 
         setLinkSyncBanner('✅ Dados sincronizados com sucesso via Link do WhatsApp!');
         setTimeout(() => {
           isReceivingRemoteData.current = false;
           window.history.replaceState(null, '', window.location.pathname);
+          // Push merged data to cloud if connected
+          pushToCloud({
+            routines: newRoutines,
+            bills: newBills,
+            incomes: newIncomes,
+            clients: newClients,
+            goals: newGoals,
+          });
         }, 1000);
       }
     }
@@ -87,16 +115,6 @@ export function App() {
   useEffect(() => { saveToStorage('casal_goals', goals); }, [goals]);
   useEffect(() => { saveToStorage('casal_settings', settings); }, [settings]);
 
-  // Helper to merge array items by unique ID
-  const mergeById = <T extends { id: string }>(local: T[], remote: T[]): T[] => {
-    const map = new Map<string, T>();
-    remote.forEach((item) => map.set(item.id, item));
-    local.forEach((item) => {
-      if (!map.has(item.id)) map.set(item.id, item);
-    });
-    return Array.from(map.values());
-  };
-
   // Fetch Cloud Data from Supabase
   const fetchCloudData = async (client: any) => {
     if (!client) return;
@@ -108,30 +126,37 @@ export function App() {
         .eq('id', 'main_data')
         .maybeSingle();
 
-      if (data && data.data && !error) {
+      if (error) {
+        console.error('Erro ao buscar dados no Supabase:', error);
+        setSyncStatus('error');
+        return;
+      }
+
+      if (data && data.data) {
         isReceivingRemoteData.current = true;
 
-        if (data.data.routines) setRoutines((prev) => mergeById(prev, data.data.routines));
-        if (data.data.bills) setBills((prev) => mergeById(prev, data.data.bills));
-        if (data.data.incomes) setIncomes((prev) => mergeById(prev, data.data.incomes));
-        if (data.data.clients) setClients((prev) => mergeById(prev, data.data.clients));
-        if (data.data.goals) setGoals((prev) => mergeById(prev, data.data.goals));
+        if (Array.isArray(data.data.routines)) setRoutines(data.data.routines);
+        if (Array.isArray(data.data.bills)) setBills(data.data.bills);
+        if (Array.isArray(data.data.incomes)) setIncomes(data.data.incomes);
+        if (Array.isArray(data.data.clients)) setClients(data.data.clients);
+        if (Array.isArray(data.data.goals)) setGoals(data.data.goals);
+
+        setSyncStatus('synced');
+        setLastSyncTime(
+          new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        );
 
         setTimeout(() => {
           isReceivingRemoteData.current = false;
-        }, 500);
-
-        setSyncStatus('synced');
-        setLastSyncTime(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+        }, 300);
       } else {
+        // If main_data does not exist on Supabase, initialize it with local data
+        await pushToCloud(appDataRef.current);
         setSyncStatus('synced');
       }
-
-      hasLoadedInitialCloudData.current = true;
     } catch (err) {
-      console.error('Erro ao buscar dados remotos:', err);
+      console.error('Erro de conexão ao Supabase:', err);
       setSyncStatus('error');
-      hasLoadedInitialCloudData.current = true;
     }
   };
 
@@ -147,19 +172,24 @@ export function App() {
       setSyncStatus('offline');
       return;
     }
-    if (isReceivingRemoteData.current || !hasLoadedInitialCloudData.current) return;
+
+    if (isReceivingRemoteData.current) return;
 
     const client = getSupabase(settings.supabaseUrl, settings.supabaseKey);
-    if (!client) return;
+    if (!client) {
+      setSyncStatus('offline');
+      return;
+    }
 
     try {
       setSyncStatus('syncing');
+      const current = appDataRef.current;
       const payload = {
-        routines: overrideData?.routines || routines,
-        bills: overrideData?.bills || bills,
-        incomes: overrideData?.incomes || incomes,
-        clients: overrideData?.clients || clients,
-        goals: overrideData?.goals || goals,
+        routines: overrideData?.routines ?? current.routines,
+        bills: overrideData?.bills ?? current.bills,
+        incomes: overrideData?.incomes ?? current.incomes,
+        clients: overrideData?.clients ?? current.clients,
+        goals: overrideData?.goals ?? current.goals,
       };
 
       const { error } = await client.from('casal_sync').upsert({
@@ -170,13 +200,15 @@ export function App() {
 
       if (!error) {
         setSyncStatus('synced');
-        setLastSyncTime(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+        setLastSyncTime(
+          new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        );
       } else {
         console.error('Erro ao salvar no Supabase:', error);
         setSyncStatus('error');
       }
     } catch (err) {
-      console.error('Erro ao conectar no Supabase:', err);
+      console.error('Erro de rede ao conectar Supabase:', err);
       setSyncStatus('error');
     }
   };
@@ -194,19 +226,39 @@ export function App() {
       return;
     }
 
+    // Initial fetch on mount or settings update
     fetchCloudData(client);
 
+    // Polling fallback every 3 seconds
     const interval = setInterval(() => {
       fetchCloudData(client);
-    }, 4000);
+    }, 3000);
 
+    // Supabase Realtime postgres_changes subscription
     const channel = client
       .channel('casal_sync_changes')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'casal_sync' },
-        () => {
-          fetchCloudData(client);
+        (payload: any) => {
+          if (payload.new && payload.new.data && !isReceivingRemoteData.current) {
+            isReceivingRemoteData.current = true;
+            const remoteData = payload.new.data;
+            if (Array.isArray(remoteData.routines)) setRoutines(remoteData.routines);
+            if (Array.isArray(remoteData.bills)) setBills(remoteData.bills);
+            if (Array.isArray(remoteData.incomes)) setIncomes(remoteData.incomes);
+            if (Array.isArray(remoteData.clients)) setClients(remoteData.clients);
+            if (Array.isArray(remoteData.goals)) setGoals(remoteData.goals);
+
+            setSyncStatus('synced');
+            setLastSyncTime(
+              new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+            );
+
+            setTimeout(() => {
+              isReceivingRemoteData.current = false;
+            }, 300);
+          }
         }
       )
       .subscribe();
@@ -216,14 +268,6 @@ export function App() {
       client.removeChannel(channel);
     };
   }, [settings.supabaseUrl, settings.supabaseKey]);
-
-  useEffect(() => {
-    if (isFirstRender.current) {
-      isFirstRender.current = false;
-      return;
-    }
-    pushToCloud();
-  }, [routines, bills, incomes, clients, goals]);
 
   const manualSync = () => {
     if (!settings.supabaseUrl || !settings.supabaseKey) return;
@@ -489,7 +533,13 @@ export function App() {
       {isSettingsOpen && (
         <SettingsModal
           settings={settings}
-          onSaveSettings={(newSettings) => setSettings(newSettings)}
+          onSaveSettings={(newSettings) => {
+            setSettings(newSettings);
+            if (newSettings.supabaseUrl && newSettings.supabaseKey) {
+              const client = getSupabase(newSettings.supabaseUrl, newSettings.supabaseKey);
+              if (client) fetchCloudData(client);
+            }
+          }}
           onClose={() => setIsSettingsOpen(false)}
           deferredPrompt={deferredPrompt}
           syncStatus={syncStatus}
