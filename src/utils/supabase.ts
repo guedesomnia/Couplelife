@@ -11,6 +11,10 @@ export const formatSupabaseUrl = (rawUrl?: string): string => {
   if (!cleaned.startsWith('http://') && !cleaned.startsWith('https://')) {
     cleaned = `https://${cleaned}`;
   }
+  // Auto-correct missing 'v' in user's project ID if present
+  if (cleaned.includes('zxjwvfehmfhnrxryohg')) {
+    cleaned = cleaned.replace('zxjwvfehmfhnrxryohg', 'zxjwvvfehmfhnrxryohg');
+  }
   // remove trailing slash if any
   return cleaned.replace(/\/+$/, '');
 };

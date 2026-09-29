@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import type { AppSettings } from '../types';
 import { X, Save, Download, Upload, Smartphone, Cloud, Code, Check, RefreshCw, Share2 } from 'lucide-react';
 import { exportAppDataJSON, importAppDataJSON, generateWhatsAppSyncLink } from '../utils/storage';
-import { SQL_SCHEMA_INSTRUCTIONS } from '../utils/supabase';
+import { SQL_SCHEMA_INSTRUCTIONS, formatSupabaseUrl } from '../utils/supabase';
 import type { SyncStatusType } from '../App';
 
 interface SettingsModalProps {
@@ -36,7 +36,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     onSaveSettings({
       husbandName: husbandName.trim() || 'Ele',
       wifeName: wifeName.trim() || 'Ela',
-      supabaseUrl: supabaseUrl.trim() || undefined,
+      supabaseUrl: formatSupabaseUrl(supabaseUrl) || undefined,
       supabaseKey: supabaseKey.trim() || undefined,
     });
     onClose();
@@ -264,6 +264,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 onChange={(e) => setSupabaseUrl(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono text-xs"
               />
+              <button
+                type="button"
+                onClick={() => setSupabaseUrl('https://zxjwvvfehmfhnrxryohg.supabase.co')}
+                className="mt-1.5 text-[11px] text-sky-400 hover:text-sky-300 underline font-medium block"
+              >
+                ⚡ Inserir URL Correta (https://zxjwvvfehmfhnrxryohg.supabase.co)
+              </button>
             </div>
 
             <div>

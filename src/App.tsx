@@ -42,6 +42,16 @@ export function App() {
   const [goals, setGoals] = useState<GoalItem[]>(initial.goals);
   const [settings, setSettings] = useState<AppSettings>(initial.settings);
 
+  // Auto-correct saved URL if it contains typos or missing https
+  useEffect(() => {
+    if (settings.supabaseUrl) {
+      const formatted = formatSupabaseUrl(settings.supabaseUrl);
+      if (formatted !== settings.supabaseUrl) {
+        setSettings((prev) => ({ ...prev, supabaseUrl: formatted }));
+      }
+    }
+  }, []);
+
   // Ref to hold the latest state synchronously
   const appDataRef = useRef({ routines, bills, incomes, clients, goals });
   useEffect(() => {
@@ -119,6 +129,24 @@ export function App() {
   useEffect(() => { saveToStorage('casal_goals', goals); }, [goals]);
   useEffect(() => { saveToStorage('casal_settings', settings); }, [settings]);
 
+  // Helper to humanize errors
+  const humanizeError = (err: any): string => {
+    const raw = String(err?.message || err || '');
+    if (raw.includes('Failed to fetch') || raw.includes('NetworkError')) {
+      return 'URL do Supabase inacessível. O endereço deve ser https://zxjwvvfehmfhnrxryohg.supabase.co';
+    }
+    if (raw.includes('relation "casal_sync" does not exist')) {
+      return 'Tabela não encontrada no Supabase. Abra o SQL Editor do Supabase e execute o código de configuração.';
+    }
+    if (raw.includes('policy') || raw.includes('row-level security') || raw.includes('42501')) {
+      return 'Permissão negada (RLS). Execute o código SQL nas Configurações para liberar o acesso.';
+    }
+    if (raw.includes('Invalid API key') || raw.includes('JWT') || raw.includes('401')) {
+      return 'Chave de API (Key) incorreta ou inválida. Verifique nas Configurações.';
+    }
+    return raw;
+  };
+
   // Fetch Cloud Data from Supabase
   const fetchCloudData = async (client: any) => {
     if (!client) return;
@@ -132,7 +160,7 @@ export function App() {
 
       if (error) {
         console.error('Erro ao buscar dados no Supabase:', error);
-        setErrorMessage(error.message || 'Erro de permissão ou SQL no Supabase');
+        setErrorMessage(humanizeError(error));
         setSyncStatus('error');
         return;
       }
@@ -163,7 +191,7 @@ export function App() {
       }
     } catch (err: any) {
       console.error('Erro de conexão ao Supabase:', err);
-      setErrorMessage(err?.message || 'Falha de rede ao conectar ao Supabase');
+      setErrorMessage(humanizeError(err));
       setSyncStatus('error');
     }
   };
@@ -222,12 +250,12 @@ export function App() {
         );
       } else {
         console.error('Erro ao salvar no Supabase:', error);
-        setErrorMessage(error.message || 'Erro ao salvar no Supabase');
+        setErrorMessage(humanizeError(error));
         setSyncStatus('error');
       }
     } catch (err: any) {
       console.error('Erro de rede ao conectar Supabase:', err);
-      setErrorMessage(err?.message || 'Erro de rede');
+      setErrorMessage(humanizeError(err));
       setSyncStatus('error');
     }
   };
@@ -474,8 +502,14 @@ export function App() {
       )}
 
       {errorMessage && syncStatus === 'error' && (
-        <div className="bg-red-900/80 border-b border-red-700 text-red-200 text-xs py-2 px-4 text-center font-mono">
-          ⚠️ Supabase: {errorMessage}
+        <div className="bg-red-950/90 border-b border-red-700/80 text-red-200 text-xs py-2.5 px-4 text-center font-medium shadow-lg flex items-center justify-center gap-2">
+          <span>⚠️ {errorMessage}</span>
+          <button
+            onClick={() => setIsSettingsOpen(true)}
+            className="underline font-bold text-red-100 hover:text-white ml-2"
+          >
+            Abrir Configurações
+          </button>
         </div>
       )}
 
@@ -563,7 +597,8 @@ export function App() {
           onSaveSettings={(newSettings) => {
             setSettings(newSettings);
             if (newSettings.supabaseUrl && newSettings.supabaseKey) {
-              const client = getSupabase(newSettings.supabaseUrl, newSettings.supabaseKey);
+              const formattedUrl = formatSupabaseUrl(newSettings.supabaseUrl);
+              const client = getSupabase(formattedUrl, newSettings.supabaseKey);
               if (client) fetchCloudData(client);
             }
           }}
