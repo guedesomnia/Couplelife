@@ -4,16 +4,30 @@ let supabaseClient: SupabaseClient | null = null;
 let currentUrl = '';
 let currentKey = '';
 
-export const getSupabase = (url?: string, key?: string): SupabaseClient | null => {
-  if (!url || !key) return null;
+export const formatSupabaseUrl = (rawUrl?: string): string => {
+  if (!rawUrl) return '';
+  let cleaned = rawUrl.trim();
+  if (!cleaned) return '';
+  if (!cleaned.startsWith('http://') && !cleaned.startsWith('https://')) {
+    cleaned = `https://${cleaned}`;
+  }
+  // remove trailing slash if any
+  return cleaned.replace(/\/+$/, '');
+};
 
-  if (supabaseClient && currentUrl === url && currentKey === key) {
+export const getSupabase = (url?: string, key?: string): SupabaseClient | null => {
+  const formattedUrl = formatSupabaseUrl(url);
+  const formattedKey = key?.trim() || '';
+
+  if (!formattedUrl || !formattedKey) return null;
+
+  if (supabaseClient && currentUrl === formattedUrl && currentKey === formattedKey) {
     return supabaseClient;
   }
 
   try {
-    currentUrl = url.trim();
-    currentKey = key.trim();
+    currentUrl = formattedUrl;
+    currentKey = formattedKey;
     supabaseClient = createClient(currentUrl, currentKey, {
       auth: { persistSession: false },
     });

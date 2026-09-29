@@ -8,7 +8,7 @@ import type {
   AppSettings,
 } from './types';
 import { getInitialData, saveToStorage, parseWhatsAppSyncLink } from './utils/storage';
-import { getSupabase } from './utils/supabase';
+import { getSupabase, formatSupabaseUrl } from './utils/supabase';
 import { Navbar } from './components/Navbar';
 import type { TabType } from './components/Navbar';
 import { DashboardView } from './components/DashboardView';
@@ -31,6 +31,7 @@ export function App() {
   const [syncStatus, setSyncStatus] = useState<SyncStatusType>('offline');
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   const [linkSyncBanner, setLinkSyncBanner] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Initial State from LocalStorage
   const initial = getInitialData();
@@ -41,16 +42,16 @@ export function App() {
   const [goals, setGoals] = useState<GoalItem[]>(initial.goals);
   const [settings, setSettings] = useState<AppSettings>(initial.settings);
 
-  // Ref to always hold the latest state synchronously to prevent stale closures during cloud push
+  // Ref to hold the latest state synchronously
   const appDataRef = useRef({ routines, bills, incomes, clients, goals });
   useEffect(() => {
     appDataRef.current = { routines, bills, incomes, clients, goals };
   }, [routines, bills, incomes, clients, goals]);
 
-  // Flag to avoid recursive cloud push when updating local state from cloud
+  // Ref to flag background remote updates
   const isReceivingRemoteData = useRef(false);
 
-  // Helper to merge array items by unique ID (preserves unsynced local items)
+  // Helper to merge array items by unique ID
   const mergeById = <T extends { id: string }>(local: T[], remote: T[]): T[] => {
     const map = new Map<string, T>();
     remote.forEach((item) => map.set(item.id, item));
@@ -83,13 +84,16 @@ export function App() {
           isReceivingRemoteData.current = false;
           window.history.replaceState(null, '', window.location.pathname);
           // Push merged data to cloud if connected
-          pushToCloud({
-            routines: newRoutines,
-            bills: newBills,
-            incomes: newIncomes,
-            clients: newClients,
-            goals: newGoals,
-          });
+          pushToCloud(
+            {
+              routines: newRoutines,
+              bills: newBills,
+              incomes: newIncomes,
+              clients: newClients,
+              goals: newGoals,
+            },
+            true
+          );
         }, 1000);
       }
     }
@@ -128,9 +132,12 @@ export function App() {
 
       if (error) {
         console.error('Erro ao buscar dados no Supabase:', error);
+        setErrorMessage(error.message || 'Erro de permissão ou SQL no Supabase');
         setSyncStatus('error');
         return;
       }
+
+      setErrorMessage(null);
 
       if (data && data.data) {
         isReceivingRemoteData.current = true;
@@ -151,31 +158,40 @@ export function App() {
         }, 300);
       } else {
         // If main_data does not exist on Supabase, initialize it with local data
-        await pushToCloud(appDataRef.current);
+        await pushToCloud(appDataRef.current, true);
         setSyncStatus('synced');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro de conexão ao Supabase:', err);
+      setErrorMessage(err?.message || 'Falha de rede ao conectar ao Supabase');
       setSyncStatus('error');
     }
   };
 
-  // Push Data to Cloud
-  const pushToCloud = async (overrideData?: {
-    routines?: RoutineItem[];
-    bills?: BillItem[];
-    incomes?: IncomeItem[];
-    clients?: ClientItem[];
-    goals?: GoalItem[];
-  }) => {
-    if (!settings.supabaseUrl || !settings.supabaseKey) {
+  // Push Data to Cloud (force = true overrides receiving flag for user actions)
+  const pushToCloud = async (
+    overrideData?: {
+      routines?: RoutineItem[];
+      bills?: BillItem[];
+      incomes?: IncomeItem[];
+      clients?: ClientItem[];
+      goals?: GoalItem[];
+    },
+    force = false
+  ) => {
+    const formattedUrl = formatSupabaseUrl(settings.supabaseUrl);
+    if (!formattedUrl || !settings.supabaseKey) {
       setSyncStatus('offline');
       return;
     }
 
-    if (isReceivingRemoteData.current) return;
+    if (force) {
+      isReceivingRemoteData.current = false;
+    } else if (isReceivingRemoteData.current) {
+      return;
+    }
 
-    const client = getSupabase(settings.supabaseUrl, settings.supabaseKey);
+    const client = getSupabase(formattedUrl, settings.supabaseKey);
     if (!client) {
       setSyncStatus('offline');
       return;
@@ -199,28 +215,32 @@ export function App() {
       });
 
       if (!error) {
+        setErrorMessage(null);
         setSyncStatus('synced');
         setLastSyncTime(
           new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
         );
       } else {
         console.error('Erro ao salvar no Supabase:', error);
+        setErrorMessage(error.message || 'Erro ao salvar no Supabase');
         setSyncStatus('error');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro de rede ao conectar Supabase:', err);
+      setErrorMessage(err?.message || 'Erro de rede');
       setSyncStatus('error');
     }
   };
 
   // Supabase Initial Connect, Realtime Subscription & Polling
   useEffect(() => {
-    if (!settings.supabaseUrl || !settings.supabaseKey) {
+    const formattedUrl = formatSupabaseUrl(settings.supabaseUrl);
+    if (!formattedUrl || !settings.supabaseKey) {
       setSyncStatus('offline');
       return;
     }
 
-    const client = getSupabase(settings.supabaseUrl, settings.supabaseKey);
+    const client = getSupabase(formattedUrl, settings.supabaseKey);
     if (!client) {
       setSyncStatus('offline');
       return;
@@ -241,7 +261,7 @@ export function App() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'casal_sync' },
         (payload: any) => {
-          if (payload.new && payload.new.data && !isReceivingRemoteData.current) {
+          if (payload.new && payload.new.data) {
             isReceivingRemoteData.current = true;
             const remoteData = payload.new.data;
             if (Array.isArray(remoteData.routines)) setRoutines(remoteData.routines);
@@ -270,8 +290,9 @@ export function App() {
   }, [settings.supabaseUrl, settings.supabaseKey]);
 
   const manualSync = () => {
-    if (!settings.supabaseUrl || !settings.supabaseKey) return;
-    const client = getSupabase(settings.supabaseUrl, settings.supabaseKey);
+    const formattedUrl = formatSupabaseUrl(settings.supabaseUrl);
+    if (!formattedUrl || !settings.supabaseKey) return;
+    const client = getSupabase(formattedUrl, settings.supabaseKey);
     if (client) {
       fetchCloudData(client);
     }
@@ -286,25 +307,25 @@ export function App() {
     };
     const next = [item, ...routines];
     setRoutines(next);
-    pushToCloud({ routines: next });
+    pushToCloud({ routines: next }, true);
   };
 
   const updateRoutine = (id: string, updated: Partial<RoutineItem>) => {
     const next = routines.map((r) => (r.id === id ? { ...r, ...updated } : r));
     setRoutines(next);
-    pushToCloud({ routines: next });
+    pushToCloud({ routines: next }, true);
   };
 
   const deleteRoutine = (id: string) => {
     const next = routines.filter((r) => r.id !== id);
     setRoutines(next);
-    pushToCloud({ routines: next });
+    pushToCloud({ routines: next }, true);
   };
 
   const toggleRoutine = (id: string) => {
     const next = routines.map((r) => (r.id === id ? { ...r, completed: !r.completed } : r));
     setRoutines(next);
-    pushToCloud({ routines: next });
+    pushToCloud({ routines: next }, true);
   };
 
   // Handlers for Bills
@@ -316,19 +337,19 @@ export function App() {
     };
     const next = [item, ...bills];
     setBills(next);
-    pushToCloud({ bills: next });
+    pushToCloud({ bills: next }, true);
   };
 
   const updateBill = (id: string, updated: Partial<BillItem>) => {
     const next = bills.map((b) => (b.id === id ? { ...b, ...updated } : b));
     setBills(next);
-    pushToCloud({ bills: next });
+    pushToCloud({ bills: next }, true);
   };
 
   const deleteBill = (id: string) => {
     const next = bills.filter((b) => b.id !== id);
     setBills(next);
-    pushToCloud({ bills: next });
+    pushToCloud({ bills: next }, true);
   };
 
   const toggleBill = (id: string) => {
@@ -342,7 +363,7 @@ export function App() {
         : b
     );
     setBills(next);
-    pushToCloud({ bills: next });
+    pushToCloud({ bills: next }, true);
   };
 
   // Handlers for Incomes
@@ -354,19 +375,19 @@ export function App() {
     };
     const next = [item, ...incomes];
     setIncomes(next);
-    pushToCloud({ incomes: next });
+    pushToCloud({ incomes: next }, true);
   };
 
   const updateIncome = (id: string, updated: Partial<IncomeItem>) => {
     const next = incomes.map((i) => (i.id === id ? { ...i, ...updated } : i));
     setIncomes(next);
-    pushToCloud({ incomes: next });
+    pushToCloud({ incomes: next }, true);
   };
 
   const deleteIncome = (id: string) => {
     const next = incomes.filter((i) => i.id !== id);
     setIncomes(next);
-    pushToCloud({ incomes: next });
+    pushToCloud({ incomes: next }, true);
   };
 
   // Handlers for Clients
@@ -378,19 +399,19 @@ export function App() {
     };
     const next = [item, ...clients];
     setClients(next);
-    pushToCloud({ clients: next });
+    pushToCloud({ clients: next }, true);
   };
 
   const updateClient = (id: string, updated: Partial<ClientItem>) => {
     const next = clients.map((c) => (c.id === id ? { ...c, ...updated } : c));
     setClients(next);
-    pushToCloud({ clients: next });
+    pushToCloud({ clients: next }, true);
   };
 
   const deleteClient = (id: string) => {
     const next = clients.filter((c) => c.id !== id);
     setClients(next);
-    pushToCloud({ clients: next });
+    pushToCloud({ clients: next }, true);
   };
 
   // Handlers for Goals
@@ -402,19 +423,19 @@ export function App() {
     };
     const next = [item, ...goals];
     setGoals(next);
-    pushToCloud({ goals: next });
+    pushToCloud({ goals: next }, true);
   };
 
   const updateGoal = (id: string, updated: Partial<GoalItem>) => {
     const next = goals.map((g) => (g.id === id ? { ...g, ...updated } : g));
     setGoals(next);
-    pushToCloud({ goals: next });
+    pushToCloud({ goals: next }, true);
   };
 
   const deleteGoal = (id: string) => {
     const next = goals.filter((g) => g.id !== id);
     setGoals(next);
-    pushToCloud({ goals: next });
+    pushToCloud({ goals: next }, true);
   };
 
   const toggleGoalAchieved = (id: string) => {
@@ -428,7 +449,7 @@ export function App() {
         : g
     );
     setGoals(next);
-    pushToCloud({ goals: next });
+    pushToCloud({ goals: next }, true);
   };
 
   return (
@@ -449,6 +470,12 @@ export function App() {
       {linkSyncBanner && (
         <div className="bg-emerald-600 text-white text-xs font-bold text-center py-2 px-4 shadow">
           {linkSyncBanner}
+        </div>
+      )}
+
+      {errorMessage && syncStatus === 'error' && (
+        <div className="bg-red-900/80 border-b border-red-700 text-red-200 text-xs py-2 px-4 text-center font-mono">
+          ⚠️ Supabase: {errorMessage}
         </div>
       )}
 
